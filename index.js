@@ -1,12 +1,13 @@
 // ------------------------------
-// BOT DE RG ROLEPLAY
+// BOT DE RG ROLEPLAY - VERSÃO FINAL COM PERMISSÕES ATUALIZADAS
 // ------------------------------
 
-// Imports
 const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
 const fs = require("fs");
 
-// Criação do client
+// ------------------------------
+// CLIENTE
+// ------------------------------
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -15,20 +16,23 @@ const client = new Client({
   ]
 });
 
-// Variáveis globais
+// ------------------------------
+// VARIÁVEIS
+// ------------------------------
 const PREFIX = "!";
 const RG_FILE = "./rgs.json";
-const CARGOS_AUTORIZADOS = ["STAFF", "ADMIN", "MOD"]; // cargos autorizados
+const CANAL_LOG = "logs-rg"; // Nome do canal de logs
+
+// Cargos permitidos para cada comando
+const CARGOS_RGEDITAR = ["Fundador", "Gerente de Comunidade", "Monitor", "Administrador"];
+const CARGOS_RGDELETAR = ["Fundador", "Gerente de Comunidade", "Monitor"];
 
 // ------------------------------
-// Funções utilitárias
+// FUNÇÕES AUXILIARES
 // ------------------------------
-
 function gerarNumero19() {
   let num = "";
-  for (let i = 0; i < 19; i++) {
-    num += Math.floor(Math.random() * 10);
-  }
+  for (let i = 0; i < 19; i++) num += Math.floor(Math.random() * 10);
   return num;
 }
 
@@ -56,8 +60,19 @@ function calcularIdade(dataNascimento) {
   return idade;
 }
 
+// Função para mascarar RG e CPF
+function mascarar(valor) {
+  return valor.slice(0, 3) + "*".repeat(valor.length - 6) + valor.slice(-3);
+}
+
+// Enviar log no canal específico
+function enviarLog(guild, mensagem) {
+  const canal = guild.channels.cache.find(c => c.name === CANAL_LOG && c.isTextBased());
+  if (canal) canal.send(mensagem);
+}
+
 // ------------------------------
-// Eventos do bot
+// EVENTO MESSAGE
 // ------------------------------
 client.on("messageCreate", async (message) => {
   if (message.author.bot || !message.content.startsWith(PREFIX)) return;
@@ -68,7 +83,7 @@ client.on("messageCreate", async (message) => {
   const comando = split.shift().toLowerCase();
 
   // ------------------------------
-  // !setrg - criar RG
+  // !setrg
   // ------------------------------
   if (comando === "setrg") {
     if (rgs[message.author.id])
@@ -79,8 +94,7 @@ client.on("messageCreate", async (message) => {
         "❌ Uso correto:\n`!setrg Nome Completo EstadoCivil DD/MM/AAAA Gênero`"
       );
 
-    // Considera que o nome pode ter várias palavras
-    const estadoCivilIndex = split.length - 3; // últimos 3 são: EstadoCivil, Data, Gênero
+    const estadoCivilIndex = split.length - 3;
     const nome = split.slice(0, estadoCivilIndex).join(" ");
     const estadoCivil = split[estadoCivilIndex];
     const nascimento = split[estadoCivilIndex + 1];
@@ -91,21 +105,23 @@ client.on("messageCreate", async (message) => {
 
     const rg = {
       rg: gerarNumero19(),
-      nome: nome,
-      estadoCivil: estadoCivil,
-      nascimento: nascimento,
-      genero: genero,
-      idade: idade,
+      nome,
+      estadoCivil,
+      nascimento,
+      genero,
+      idade,
       cpf: gerarCPF()
     };
 
     rgs[message.author.id] = rg;
     salvarRGs(rgs);
-    return message.reply("✅ **RG criado com sucesso!** Use `!rg` para visualizar.");
+
+    message.reply("✅ **RG criado com sucesso!** Use `!rg` para visualizar.");
+    enviarLog(message.guild, `🆕 RG criado para **${message.author.tag}**`);
   }
 
   // ------------------------------
-  // !rg - ver RG
+  // !rg
   // ------------------------------
   if (comando === "rg") {
     const rg = rgs[message.author.id];
@@ -114,11 +130,7 @@ client.on("messageCreate", async (message) => {
     const embed = new EmbedBuilder()
       .setColor("#1f2c34")
       .setTitle("🪪 CARTEIRA DE IDENTIDADE")
-      .setDescription(
-`━━━━━━━━━━━━━━━━━━━━
-🆔 **RG Nº:** ${rg.rg}
-━━━━━━━━━━━━━━━━━━━━`
-      )
+      .setDescription(`━━━━━━━━━━━━━━━━━━━━\n🆔 **RG Nº:** ${rg.rg}\n━━━━━━━━━━━━━━━━━━━━`)
       .addFields(
         { name: "👤 Nome", value: rg.nome, inline: true },
         { name: "📄 CPF", value: rg.cpf, inline: true },
@@ -134,12 +146,31 @@ client.on("messageCreate", async (message) => {
   }
 
   // ------------------------------
-  // !rgdeletar - deletar RG (apenas cargos autorizados)
+  // !rgeditar
+  // ------------------------------
+  if (comando === "rgeditar") {
+    const possuiCargo = message.member.roles.cache.some(r => CARGOS_RGEDITAR.includes(r.name));
+    if (!possuiCargo) return message.reply("❌ Você não tem permissão para usar este comando.");
+
+    const user = message.mentions.users.first();
+    if (!user) return message.reply("❌ Mencione o usuário.");
+    if (!rgs[user.id]) return message.reply("❌ Este usuário não possui RG.");
+
+    const novoNome = split.slice(1).join(" ");
+    if (!novoNome) return message.reply("❌ Digite o novo nome após a menção.");
+
+    rgs[user.id].nome = novoNome;
+    salvarRGs(rgs);
+
+    message.reply(`✅ Nome do RG de **${user.tag}** alterado para **${novoNome}**.`);
+    enviarLog(message.guild, `✏️ RG de **${user.tag}** editado por **${message.author.tag}**. Novo nome: ${novoNome}`);
+  }
+
+  // ------------------------------
+  // !rgdeletar
   // ------------------------------
   if (comando === "rgdeletar") {
-    const possuiCargo = message.member.roles.cache.some(r =>
-      CARGOS_AUTORIZADOS.includes(r.name)
-    );
+    const possuiCargo = message.member.roles.cache.some(r => CARGOS_RGDELETAR.includes(r.name));
     if (!possuiCargo) return message.reply("❌ Você não tem permissão para usar este comando.");
 
     const user = message.mentions.users.first();
@@ -148,11 +179,31 @@ client.on("messageCreate", async (message) => {
 
     delete rgs[user.id];
     salvarRGs(rgs);
+
     message.reply("🗑️ RG deletado com sucesso.");
+    enviarLog(message.guild, `🗑️ RG deletado por **${message.author.tag}** de **${user.tag}**`);
+  }
+
+  // ------------------------------
+  // !rgs
+  // ------------------------------
+  if (comando === "rgs") {
+    const possuiCargo = message.member.roles.cache.some(r => CARGOS_RGEDITAR.includes(r.name));
+    if (!possuiCargo) return message.reply("❌ Você não tem permissão para usar este comando.");
+
+    let lista = Object.entries(rgs).map(([id, rg]) => {
+      const user = message.guild.members.cache.get(id);
+      return `👤 **${user ? user.user.tag : "Desconhecido"}** - ${rg.nome}, ${rg.idade} anos - RG: ${mascarar(rg.rg)} - CPF: ${mascarar(rg.cpf)}`;
+    }).join("\n");
+
+    if (!lista) lista = "Nenhum RG registrado.";
+
+    message.reply(`📜 **Lista de RGs:**\n${lista}`);
+    enviarLog(message.guild, `📜 ${message.author.tag} consultou a lista de RGs`);
   }
 });
 
 // ------------------------------
-// LOGIN DO BOT (variável de ambiente TOKEN)
+// LOGIN DO BOT
 // ------------------------------
 client.login(process.env.TOKEN);
