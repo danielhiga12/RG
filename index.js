@@ -10,161 +10,323 @@ const client = new Client({
 });
 
 const PREFIX = "!";
-const RG_FILE = "./rgs.json";
-const LOG_CHANNEL_NAME = "logs-rg";
+const LOG_CHANNEL = "logs-rp";
 
-const PERM_EDITAR = ["Fundador", "Gerente de Comunidade", "Monitor", "Administrador"];
-const PERM_DELETAR = ["Fundador", "Gerente de Comunidade", "Monitor"];
-const PERM_CONSULTAR = [...PERM_EDITAR, "Moderador"];
+/* ===== Arquivos ===== */
+const FILES = {
+  rgs: "./rgs.json",
+  economia: "./economia.json",
+  antecedentes: "./antecedentes.json",
+  mandados: "./mandados.json",
+  veiculos: "./veiculos.json"
+};
 
-/* ================= UTIL ================= */
+/* ===== Inicializa arquivos ===== */
+for (const f of Object.values(FILES)) if (!fs.existsSync(f)) fs.writeFileSync(f, "{}");
 
-function loadRGs() {
-  if (!fs.existsSync(RG_FILE)) fs.writeFileSync(RG_FILE, "{}");
-  return JSON.parse(fs.readFileSync(RG_FILE));
+/* ===== Cargos ===== */
+const POLICIA = ["Policia Civil", "Policia Militar", "Policia Federal", "PRF", "Policia do Exército"];
+const STAFF = ["Fundador","Gerente de Comunidade","Administrador","Monitor","Moderador"];
+
+/* ===== Utilidades ===== */
+const load = f => JSON.parse(fs.readFileSync(f));
+const save = (f,d) => fs.writeFileSync(f, JSON.stringify(d,null,2));
+const hasRole = (m,roles) => m.roles.cache.some(r => roles.includes(r.name));
+const gerar19 = () => Array.from({length:19},()=>Math.floor(Math.random()*10)).join("");
+const idade = n => {
+  const [d,m,a] = n.split("/").map(Number);
+  const h = new Date();
+  let i = h.getFullYear() - a;
+  if(h.getMonth()+1<m||(h.getMonth()+1===m&&h.getDate()<d)) i--;
+  return i;
+};
+const formatDate = d => new Date(d).toLocaleDateString();
+
+/* ===== LOG EMBED ===== */
+async function logEmbed(guild,categoria,descricao){
+  const canal = guild.channels.cache.find(c=>c.name===LOG_CHANNEL);
+  if(!canal) return;
+  let cor,titulo;
+  switch(categoria){
+    case "RG": cor="#1f2c34"; titulo="🪪 RG"; break;
+    case "POLICIA": cor="#ff0000"; titulo="🚓 Polícia"; break;
+    case "ECONOMIA": cor="#00ff00"; titulo="💰 Economia"; break;
+    case "JUDICIARIO": cor="#ff9900"; titulo="⚖️ Judiciário"; break;
+    case "VEICULOS": cor="#0099ff"; titulo="🚗 Veículos"; break;
+    default: cor="#ffffff"; titulo="LOG";
+  }
+  const embed = new EmbedBuilder()
+    .setTitle(titulo)
+    .setDescription(descricao)
+    .setColor(cor)
+    .setTimestamp();
+  canal.send({embeds:[embed]});
 }
 
-function saveRGs(data) {
-  fs.writeFileSync(RG_FILE, JSON.stringify(data, null, 2));
-}
+/* ===== Prisões ativas ===== */
+const prisaoAtiva = {};
 
-function gerarNumero19() {
-  let n = "";
-  for (let i = 0; i < 19; i++) n += Math.floor(Math.random() * 10);
-  return n;
-}
+/* ===== BOT ONLINE ===== */
+client.once("ready",()=>console.log(`✅ Bot online como ${client.user.tag}`));
 
-function calcularIdade(data) {
-  const [d, m, a] = data.split("/").map(Number);
-  const hoje = new Date();
-  let idade = hoje.getFullYear() - a;
-  if (hoje.getMonth() + 1 < m || (hoje.getMonth() + 1 === m && hoje.getDate() < d)) idade--;
-  return idade;
-}
-
-function temCargo(member, cargos) {
-  return member.roles.cache.some(r => cargos.includes(r.name));
-}
-
-async function log(guild, msg) {
-  const canal = guild.channels.cache.find(c => c.name === LOG_CHANNEL_NAME);
-  if (canal) canal.send(msg);
-}
-
-/* ================= BOT ================= */
-
-client.once("ready", () => {
-  console.log(`✅ Bot online como ${client.user.tag}`);
-});
-
-client.on("messageCreate", async (message) => {
-  if (message.author.bot || !message.content.startsWith(PREFIX)) return;
+/* ===== EVENTO DE MENSAGEM ===== */
+client.on("messageCreate",async message=>{
+  if(message.author.bot||!message.content.startsWith(PREFIX)) return;
 
   const args = message.content.slice(PREFIX.length).split(";");
   const cmd = args.shift().toLowerCase();
-  const rgs = loadRGs();
 
-  /* ===== SET RG ===== */
-  if (cmd === "setrg") {
-    if (rgs[message.author.id])
-      return message.reply("❌ Você já possui RG.");
+  const rgs = load(FILES.rgs);
+  const eco = load(FILES.economia);
+  const ant = load(FILES.antecedentes);
+  const man = load(FILES.mandados);
+  const veiculos = load(FILES.veiculos);
 
-    if (args.length < 4)
-      return message.reply("Uso: `!setrg Nome Completo;Estado Civil;DD/MM/AAAA;Gênero`");
-
-    const idade = calcularIdade(args[2]);
-    if (idade < 0 || idade > 120) return message.reply("❌ Data inválida.");
-
-    rgs[message.author.id] = {
-      rg: gerarNumero19(),
-      nome: args[0],
-      estadoCivil: args[1],
-      nascimento: args[2],
-      genero: args[3],
-      idade,
-      criadoEm: Date.now(),
-      validade: Date.now() + 1000 * 60 * 60 * 24 * 365 // 1 ano
-    };
-
-    saveRGs(rgs);
-    message.reply("✅ RG criado com sucesso!");
-    log(message.guild, `🆕 RG criado por ${message.author.tag}`);
-  }
-
-  /* ===== VER RG ===== */
-  if (cmd === "rg") {
-    const rg = rgs[message.author.id];
-    if (!rg) return message.reply("❌ Você não possui RG.");
-
-    const embed = new EmbedBuilder()
-      .setTitle("🪪 Carteira de Identidade")
+  /* ===== AJUDA ===== */
+  if(cmd==="ajuda"){
+    const e = new EmbedBuilder()
+      .setTitle("📜 Comandos RP")
       .setColor("#1f2c34")
-      .addFields(
-        { name: "Nome", value: rg.nome },
-        { name: "RG", value: rg.rg },
-        { name: "Idade", value: `${rg.idade} anos` },
-        { name: "Validade", value: new Date(rg.validade).toLocaleDateString() }
-      );
+      .setDescription(`
+🪪 **RG**
+!setrg Nome;Estado Civil;DD/MM/AAAA;Gênero
+!rg
+!consultar @user
 
-    message.reply({ embeds: [embed] });
+🚓 **Polícia**
+!prender @user;tempo(min);motivo
+!soltar @user
+!antecedentes @user
+!cassarcnh @user
+
+💰 **Economia**
+!saldo
+!pagar @user;valor
+!multar @user;valor
+
+🚗 **Veículos**
+!registrarveiculo Placa;Modelo;Tipo
+!consultarveiculo Placa
+
+⚖️ **Judiciário**
+!mandado @user;motivo
+!removermandado @user
+!mandadosativos
+      `);
+    return message.author.send({embeds:[e]});
   }
 
-  /* ===== CONSULTAR ===== */
-  if (cmd === "consultar") {
-    if (!temCargo(message.member, PERM_CONSULTAR))
-      return message.reply("❌ Sem permissão.");
+  /* ===== RG ===== */
+  if(cmd==="setrg"){
+    if(rgs[message.author.id]) return message.reply("❌ Já possui RG.");
+    const id = idade(args[2]);
+    if(id<0||id>120) return message.reply("❌ Data inválida.");
 
-    const user = message.mentions.users.first();
-    if (!user || !rgs[user.id]) return message.reply("❌ RG não encontrado.");
-
-    const rg = rgs[user.id];
+    rgs[message.author.id]={rg:gerar19(),nome:args[0],estado:args[1],nasc:args[2],genero:args[3],idade:id,validade:Date.now()+31536000000};
+    save(FILES.rgs,rgs);
 
     const embed = new EmbedBuilder()
-      .setTitle("🔍 Consulta de RG")
+      .setTitle("🪪 RG Criado")
+      .setColor("#1f2c34")
+      .setDescription("━━━━━━━━━━━━━━━━━━━━")
       .addFields(
-        { name: "Nome", value: rg.nome },
-        { name: "RG", value: rg.rg },
-        { name: "Idade", value: `${rg.idade}` },
-        { name: "Gênero", value: rg.genero }
+        {name:"Nome",value:args[0],inline:true},
+        {name:"RG",value:rgs[message.author.id].rg,inline:true},
+        {name:"Validade",value:formatDate(rgs[message.author.id].validade),inline:true}
+      )
+      .setFooter({text:"Documento RP válido"});
+    message.reply({embeds:[embed]});
+    logEmbed(message.guild,"RG",`🆕 RG criado por ${message.author.tag} (${args[0]})`);
+  }
+
+  if(cmd==="rg"){
+    const rg = rgs[message.author.id];
+    if(!rg) return message.reply("❌ Sem RG.");
+    const cor = Date.now() < rg.validade ? "#1f2c34":"#ff0000";
+    const status = Date.now() < rg.validade ? "Válido":"Expirado";
+    const e = new EmbedBuilder()
+      .setTitle("🪪 Carteira de Identidade")
+      .setColor(cor)
+      .setDescription("━━━━━━━━━━━━━━━━━━━━")
+      .addFields(
+        {name:"Nome",value:rg.nome},
+        {name:"RG",value:rg.rg},
+        {name:"Idade",value:`${rg.idade}`},
+        {name:"Gênero",value:rg.genero},
+        {name:"Status",value:status},
+        {name:"Validade",value:formatDate(rg.validade)}
+      )
+      .setFooter({text:"Documento RP válido"});
+    return message.reply({embeds:[e]});
+  }
+
+  if(cmd==="consultar"){
+    if(!hasRole(message.member,STAFF)) return message.reply("❌ Sem permissão.");
+    const u = message.mentions.users.first();
+    if(!u||!rgs[u.id]) return message.reply("❌ RG não encontrado.");
+    const rg = rgs[u.id];
+    const cor = Date.now() < rg.validade ? "#1f2c34":"#ff0000";
+    const status = Date.now() < rg.validade ? "Válido":"Expirado";
+    const e = new EmbedBuilder()
+      .setTitle("🔍 Consulta de RG")
+      .setColor(cor)
+      .setDescription("━━━━━━━━━━━━━━━━━━━━")
+      .addFields(
+        {name:"Nome",value:rg.nome},
+        {name:"RG",value:rg.rg},
+        {name:"Idade",value:`${rg.idade}`},
+        {name:"Gênero",value:rg.genero},
+        {name:"Status",value:status},
+        {name:"Validade",value:formatDate(rg.validade)}
       );
-
-    message.reply({ embeds: [embed] });
-    log(message.guild, `🔍 ${message.author.tag} consultou RG de ${user.tag}`);
+    message.reply({embeds:[e]});
+    logEmbed(message.guild,"RG",`🔍 ${message.author.tag} consultou RG de ${u.tag}`);
   }
 
-  /* ===== EDITAR ===== */
-  if (cmd === "rgeditar") {
-    if (!temCargo(message.member, PERM_EDITAR))
-      return message.reply("❌ Sem permissão.");
+  /* ===== POLÍCIA ===== */
+  if(cmd==="prender"){
+    if(!hasRole(message.member,POLICIA)) return message.reply("❌ Sem permissão.");
+    const u = message.mentions.members.first();
+    if(!u) return message.reply("❌ Mencione o usuário.");
+    const tempo = parseInt(args[1]);
+    if(isNaN(tempo)) return message.reply("❌ Tempo inválido.");
+    const motivo = args[2]||"Não informado";
 
-    const user = message.mentions.users.first();
-    const novoNome = args[1];
-    if (!user || !novoNome || !rgs[user.id])
-      return message.reply("Uso: `!rgeditar @user;Novo Nome`");
-
-    rgs[user.id].nome = novoNome;
-    saveRGs(rgs);
-
-    message.reply("✏️ Nome do RG atualizado.");
-    log(message.guild, `✏️ RG de ${user.tag} editado`);
+    prisaoAtiva[u.id]=Date.now()+tempo*60000;
+    logEmbed(message.guild,"POLICIA",`🚨 ${u.user.tag} preso por ${message.author.tag} (${motivo})`);
+    message.reply(`✅ ${u.user.tag} preso por ${tempo} minutos.`);
   }
 
-  /* ===== DELETAR ===== */
-  if (cmd === "rgdeletar") {
-    if (!temCargo(message.member, PERM_DELETAR))
-      return message.reply("❌ Sem permissão.");
-
-    const user = message.mentions.users.first();
-    if (!user || !rgs[user.id])
-      return message.reply("❌ RG não encontrado.");
-
-    delete rgs[user.id];
-    saveRGs(rgs);
-
-    message.reply("🗑️ RG deletado.");
-    log(message.guild, `🗑️ RG de ${user.tag} deletado`);
+  if(cmd==="soltar"){
+    if(!hasRole(message.member,POLICIA)) return message.reply("❌ Sem permissão.");
+    const u = message.mentions.members.first();
+    if(!u) return message.reply("❌ Mencione o usuário.");
+    if(!prisaoAtiva[u.id]) return message.reply("❌ Usuário não está preso.");
+    delete prisaoAtiva[u.id];
+    logEmbed(message.guild,"POLICIA",`✅ ${u.user.tag} solto por ${message.author.tag}`);
+    message.reply(`✅ ${u.user.tag} foi solto.`);
   }
+
+  if(cmd==="antecedentes"){
+    if(!hasRole(message.member,POLICIA)) return message.reply("❌ Sem permissão.");
+    const u = message.mentions.users.first();
+    if(!u) return message.reply("❌ Mencione o usuário.");
+    const lista = ant[u.id]||[];
+    const e = new EmbedBuilder()
+      .setTitle(`📜 Antecedentes de ${u.tag}`)
+      .setColor("#ff0000")
+      .setDescription(lista.length>0?lista.join("\n"):"Sem antecedentes");
+    message.reply({embeds:[e]});
+  }
+
+  if(cmd==="cassarcnh"){
+    if(!hasRole(message.member,POLICIA)) return message.reply("❌ Sem permissão.");
+    const u = message.mentions.users.first();
+    if(!u) return message.reply("❌ Mencione o usuário.");
+    if(!rgs[u.id]) return message.reply("❌ Usuário não possui RG.");
+    rgs[u.id].validade=0;
+    save(FILES.rgs,rgs);
+    logEmbed(message.guild,"POLICIA",`🚫 CNH de ${u.tag} cassada por ${message.author.tag}`);
+    message.reply(`✅ CNH de ${u.tag} cassada.`);
+  }
+
+  /* ===== ECONOMIA ===== */
+  if(cmd==="saldo"){
+    if(!eco[message.author.id]) eco[message.author.id]=0;
+    save(FILES.economia,eco);
+    message.reply(`💰 Seu saldo: R$${eco[message.author.id]}`);
+  }
+
+  if(cmd==="pagar"){
+    const u = message.mentions.users.first();
+    if(!u) return message.reply("❌ Mencione o usuário.");
+    const valor = parseInt(args[1]);
+    if(isNaN(valor)||valor<=0) return message.reply("❌ Valor inválido.");
+    if(!eco[message.author.id]||eco[message.author.id]<valor) return message.reply("❌ Saldo insuficiente.");
+    eco[message.author.id]-=valor;
+    if(!eco[u.id]) eco[u.id]=0;
+    eco[u.id]+=valor;
+    save(FILES.economia,eco);
+    message.reply(`✅ Transferido R$${valor} para ${u.tag}`);
+    logEmbed(message.guild,"ECONOMIA",`💸 ${message.author.tag} pagou R$${valor} para ${u.tag}`);
+  }
+
+  if(cmd==="multar"){
+    if(!hasRole(message.member,POLICIA)) return message.reply("❌ Sem permissão.");
+    const u = message.mentions.users.first();
+    const valor = parseInt(args[1]);
+    if(!u||isNaN(valor)||valor<=0) return message.reply("❌ Dados inválidos.");
+    if(!eco[u.id]) eco[u.id]=0;
+    eco[u.id]-=valor;
+    if(!eco[message.author.id]) eco[message.author.id]=0;
+    eco[message.author.id]+=valor;
+    save(FILES.economia,eco);
+    message.reply(`✅ ${u.tag} multado em R$${valor}`);
+    logEmbed(message.guild,"ECONOMIA",`💸 ${u.tag} multado em R$${valor} por ${message.author.tag}`);
+  }
+
+  /* ===== VEÍCULOS ===== */
+  if(cmd==="registrarveiculo"){
+    const placa = args[0];
+    const modelo = args[1]||"Desconhecido";
+    const tipo = args[2]||"Veículo";
+    if(!placa) return message.reply("❌ Informe a placa.");
+    veiculos[placa]={dono:message.author.id,modelo,tipo};
+    save(FILES.veiculos,veiculos);
+    message.reply(`✅ Veículo ${modelo} registrado com placa ${placa}`);
+    logEmbed(message.guild,"VEICULOS",`🚗 ${message.author.tag} registrou veículo ${modelo} (${placa})`);
+  }
+
+  if(cmd==="consultarveiculo"){
+    const placa = args[0];
+    if(!placa||!veiculos[placa]) return message.reply("❌ Veículo não encontrado.");
+    const v = veiculos[placa];
+    const e = new EmbedBuilder()
+      .setTitle(`🚗 Veículo: ${v.modelo}`)
+      .setColor("#0099ff")
+      .addFields(
+        {name:"Placa",value:placa},
+        {name:"Dono",value:`<@${v.dono}>`},
+        {name:"Tipo",value:v.tipo}
+      );
+    message.reply({embeds:[e]});
+  }
+
+  /* ===== JUDICIÁRIO ===== */
+  if(cmd==="mandado"){
+    if(!hasRole(message.member,STAFF)) return message.reply("❌ Sem permissão.");
+    const u = message.mentions.users.first();
+    const motivo = args[1]||"Não informado";
+    if(!u) return message.reply("❌ Mencione o usuário.");
+    if(!man[u.id]) man[u.id]=[];
+    man[u.id].push({autor:message.author.id,motivo,data:Date.now()});
+    save(FILES.mandados,man);
+    message.reply(`✅ Mandado emitido para ${u.tag}`);
+    logEmbed(message.guild,"JUDICIARIO",`⚖️ Mandado emitido para ${u.tag} por ${message.author.tag} (${motivo})`);
+  }
+
+  if(cmd==="removermandado"){
+    if(!hasRole(message.member,STAFF)) return message.reply("❌ Sem permissão.");
+    const u = message.mentions.users.first();
+    if(!u||!man[u.id]||man[u.id].length===0) return message.reply("❌ Sem mandados.");
+    man[u.id]=[];
+    save(FILES.mandados,man);
+    message.reply(`✅ Mandados removidos de ${u.tag}`);
+    logEmbed(message.guild,"JUDICIARIO",`✅ Mandados removidos de ${u.tag} por ${message.author.tag}`);
+  }
+
+  if(cmd==="mandadosativos"){
+    const lista = Object.entries(man).filter(([k,v])=>v.length>0);
+    if(lista.length===0) return message.reply("❌ Nenhum mandado ativo.");
+    const embed = new EmbedBuilder()
+      .setTitle("⚖️ Mandados Ativos")
+      .setColor("#ff9900")
+      .setDescription(lista.map(([k,v])=>{
+        return `<@${k}> - ${v.map(x=>x.motivo).join(", ")}`;
+      }).join("\n"));
+    message.reply({embeds:[embed]});
+  }
+
 });
 
 client.login(process.env.TOKEN);
-
