@@ -24,7 +24,6 @@ const CARGOS_AUTORIZADOS = ["STAFF", "ADMIN", "MOD"]; // cargos autorizados
 // Funções utilitárias
 // ------------------------------
 
-// Gera número aleatório de 19 dígitos
 function gerarNumero19() {
   let num = "";
   for (let i = 0; i < 19; i++) {
@@ -33,24 +32,20 @@ function gerarNumero19() {
   return num;
 }
 
-// Gera CPF formatado de 19 dígitos
 function gerarCPF() {
   let cpf = gerarNumero19();
   return cpf.replace(/^(\d{3})(\d{3})(\d{3})(\d{10})$/, "$1.$2.$3.$4");
 }
 
-// Carrega os RGs do arquivo JSON
 function carregarRGs() {
   if (!fs.existsSync(RG_FILE)) fs.writeFileSync(RG_FILE, "{}");
   return JSON.parse(fs.readFileSync(RG_FILE));
 }
 
-// Salva os RGs no arquivo JSON
 function salvarRGs(data) {
   fs.writeFileSync(RG_FILE, JSON.stringify(data, null, 2));
 }
 
-// Calcula a idade automaticamente a partir da data de nascimento
 function calcularIdade(dataNascimento) {
   const [dia, mes, ano] = dataNascimento.split("/").map(Number);
   const hoje = new Date();
@@ -67,9 +62,10 @@ function calcularIdade(dataNascimento) {
 client.on("messageCreate", async (message) => {
   if (message.author.bot || !message.content.startsWith(PREFIX)) return;
 
-  const args = message.content.slice(PREFIX.length).split(";");
-  const comando = args.shift().toLowerCase();
   const rgs = carregarRGs();
+  const content = message.content.slice(PREFIX.length).trim();
+  const split = content.split(" ");
+  const comando = split.shift().toLowerCase();
 
   // ------------------------------
   // !setrg - criar RG
@@ -77,27 +73,35 @@ client.on("messageCreate", async (message) => {
   if (comando === "setrg") {
     if (rgs[message.author.id])
       return message.reply("❌ Você já possui um RG registrado.");
-    if (args.length < 4)
+
+    if (split.length < 4)
       return message.reply(
-        "❌ Uso correto:\n`!setrg Nome Completo;Estado civil;DD/MM/AAAA;Gênero`"
+        "❌ Uso correto:\n`!setrg Nome Completo EstadoCivil DD/MM/AAAA Gênero`"
       );
 
-    const idade = calcularIdade(args[2]);
+    // Considera que o nome pode ter várias palavras
+    const estadoCivilIndex = split.length - 3; // últimos 3 são: EstadoCivil, Data, Gênero
+    const nome = split.slice(0, estadoCivilIndex).join(" ");
+    const estadoCivil = split[estadoCivilIndex];
+    const nascimento = split[estadoCivilIndex + 1];
+    const genero = split[estadoCivilIndex + 2];
+
+    const idade = calcularIdade(nascimento);
     if (idade < 0 || idade > 120) return message.reply("❌ Data de nascimento inválida.");
 
     const rg = {
       rg: gerarNumero19(),
-      nome: args[0],
-      estadoCivil: args[1],
-      nascimento: args[2],
-      genero: args[3],
+      nome: nome,
+      estadoCivil: estadoCivil,
+      nascimento: nascimento,
+      genero: genero,
       idade: idade,
       cpf: gerarCPF()
     };
 
     rgs[message.author.id] = rg;
     salvarRGs(rgs);
-    message.reply("✅ **RG criado com sucesso!** Use `!rg` para visualizar.");
+    return message.reply("✅ **RG criado com sucesso!** Use `!rg` para visualizar.");
   }
 
   // ------------------------------
@@ -149,6 +153,6 @@ client.on("messageCreate", async (message) => {
 });
 
 // ------------------------------
-// LOGIN DO BOT (use variável de ambiente TOKEN)
+// LOGIN DO BOT (variável de ambiente TOKEN)
 // ------------------------------
 client.login(process.env.TOKEN);
