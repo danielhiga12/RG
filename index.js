@@ -271,6 +271,9 @@ client.on("messageCreate", async message => {
     return message.reply({ embeds: [embed] });
   }
 });
+if (cmd === "sistema") {
+  message.reply("🚓 Sistema policial:\n👉 https://SEU-SITE.onrender.com");
+}
 
 /* ================== LOGIN ================== */
 client.login(process.env.TOKEN);
