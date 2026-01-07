@@ -21,15 +21,22 @@ const FILES = {
   veiculos: "./veiculos.json"
 };
 
-/* ===== Inicializa arquivos ===== */
-for (const f of Object.values(FILES)) if (!fs.existsSync(f)) fs.writeFileSync(f, "{}");
+/* ===== Inicializa arquivos se não existirem ===== */
+for (const f of Object.values(FILES)) {
+  if (!fs.existsSync(f)) fs.writeFileSync(f, "{}");
+}
 
 /* ===== Cargos ===== */
 const POLICIA = ["Policia Civil", "Policia Militar", "Policia Federal", "PRF", "Policia do Exército"];
 const STAFF = ["Fundador","Gerente de Comunidade","Administrador","Monitor","Moderador"];
 
 /* ===== Utilidades ===== */
-const load = f => JSON.parse(fs.readFileSync(f));
+const load = f => {
+  if(!fs.existsSync(f)) fs.writeFileSync(f,"{}");
+  const data = fs.readFileSync(f,"utf-8");
+  if(!data) fs.writeFileSync(f,"{}");
+  return JSON.parse(fs.readFileSync(f,"utf-8"));
+};
 const save = (f,d) => fs.writeFileSync(f, JSON.stringify(d,null,2));
 const hasRole = (m,roles) => m.roles.cache.some(r => roles.includes(r.name));
 const gerar19 = () => Array.from({length:19},()=>Math.floor(Math.random()*10)).join("");
@@ -160,29 +167,6 @@ client.on("messageCreate",async message=>{
     return message.reply({embeds:[e]});
   }
 
-  if(cmd==="consultar"){
-    if(!hasRole(message.member,STAFF)) return message.reply("❌ Sem permissão.");
-    const u = message.mentions.users.first();
-    if(!u||!rgs[u.id]) return message.reply("❌ RG não encontrado.");
-    const rg = rgs[u.id];
-    const cor = Date.now() < rg.validade ? "#1f2c34":"#ff0000";
-    const status = Date.now() < rg.validade ? "Válido":"Expirado";
-    const e = new EmbedBuilder()
-      .setTitle("🔍 Consulta de RG")
-      .setColor(cor)
-      .setDescription("━━━━━━━━━━━━━━━━━━━━")
-      .addFields(
-        {name:"Nome",value:rg.nome},
-        {name:"RG",value:rg.rg},
-        {name:"Idade",value:`${rg.idade}`},
-        {name:"Gênero",value:rg.genero},
-        {name:"Status",value:status},
-        {name:"Validade",value:formatDate(rg.validade)}
-      );
-    message.reply({embeds:[e]});
-    logEmbed(message.guild,"RG",`🔍 ${message.author.tag} consultou RG de ${u.tag}`);
-  }
-
   /* ===== POLÍCIA ===== */
   if(cmd==="prender"){
     if(!hasRole(message.member,POLICIA)) return message.reply("❌ Sem permissão.");
@@ -262,71 +246,4 @@ client.on("messageCreate",async message=>{
     eco[message.author.id]+=valor;
     save(FILES.economia,eco);
     message.reply(`✅ ${u.tag} multado em R$${valor}`);
-    logEmbed(message.guild,"ECONOMIA",`💸 ${u.tag} multado em R$${valor} por ${message.author.tag}`);
-  }
-
-  /* ===== VEÍCULOS ===== */
-  if(cmd==="registrarveiculo"){
-    const placa = args[0];
-    const modelo = args[1]||"Desconhecido";
-    const tipo = args[2]||"Veículo";
-    if(!placa) return message.reply("❌ Informe a placa.");
-    veiculos[placa]={dono:message.author.id,modelo,tipo};
-    save(FILES.veiculos,veiculos);
-    message.reply(`✅ Veículo ${modelo} registrado com placa ${placa}`);
-    logEmbed(message.guild,"VEICULOS",`🚗 ${message.author.tag} registrou veículo ${modelo} (${placa})`);
-  }
-
-  if(cmd==="consultarveiculo"){
-    const placa = args[0];
-    if(!placa||!veiculos[placa]) return message.reply("❌ Veículo não encontrado.");
-    const v = veiculos[placa];
-    const e = new EmbedBuilder()
-      .setTitle(`🚗 Veículo: ${v.modelo}`)
-      .setColor("#0099ff")
-      .addFields(
-        {name:"Placa",value:placa},
-        {name:"Dono",value:`<@${v.dono}>`},
-        {name:"Tipo",value:v.tipo}
-      );
-    message.reply({embeds:[e]});
-  }
-
-  /* ===== JUDICIÁRIO ===== */
-  if(cmd==="mandado"){
-    if(!hasRole(message.member,STAFF)) return message.reply("❌ Sem permissão.");
-    const u = message.mentions.users.first();
-    const motivo = args[1]||"Não informado";
-    if(!u) return message.reply("❌ Mencione o usuário.");
-    if(!man[u.id]) man[u.id]=[];
-    man[u.id].push({autor:message.author.id,motivo,data:Date.now()});
-    save(FILES.mandados,man);
-    message.reply(`✅ Mandado emitido para ${u.tag}`);
-    logEmbed(message.guild,"JUDICIARIO",`⚖️ Mandado emitido para ${u.tag} por ${message.author.tag} (${motivo})`);
-  }
-
-  if(cmd==="removermandado"){
-    if(!hasRole(message.member,STAFF)) return message.reply("❌ Sem permissão.");
-    const u = message.mentions.users.first();
-    if(!u||!man[u.id]||man[u.id].length===0) return message.reply("❌ Sem mandados.");
-    man[u.id]=[];
-    save(FILES.mandados,man);
-    message.reply(`✅ Mandados removidos de ${u.tag}`);
-    logEmbed(message.guild,"JUDICIARIO",`✅ Mandados removidos de ${u.tag} por ${message.author.tag}`);
-  }
-
-  if(cmd==="mandadosativos"){
-    const lista = Object.entries(man).filter(([k,v])=>v.length>0);
-    if(lista.length===0) return message.reply("❌ Nenhum mandado ativo.");
-    const embed = new EmbedBuilder()
-      .setTitle("⚖️ Mandados Ativos")
-      .setColor("#ff9900")
-      .setDescription(lista.map(([k,v])=>{
-        return `<@${k}> - ${v.map(x=>x.motivo).join(", ")}`;
-      }).join("\n"));
-    message.reply({embeds:[embed]});
-  }
-
-});
-
-client.login(process.env.TOKEN);
+    logEmbed(message.guild,"ECON
