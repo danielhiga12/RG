@@ -279,6 +279,19 @@ client.on("messageCreate", async message => {
     logEmbed(message.guild, LOG_JUDICIARIO, "Consulta de Antecedentes", `${message.author.tag} consultou antecedentes de ${user.tag}`);
   }
 
+  // ======================== SISTEMA RP ========================
+  if (comando === "sistema") {
+    // Permitir cargos policiais ou Fundador
+    if (
+      !message.member.roles.cache.some(r => CARGOS_POLICIA.includes(r.name)) &&
+      !message.member.roles.cache.some(r => r.name === "Fundador")
+    ) {
+      return message.reply("❌ Apenas cargos policiais ou Fundador podem acessar o sistema.");
+    }
+
+    message.reply("🚓 Sistema Policial:\n👉 https://SEU-SITE.onrender.com");
+  }
+
   // ======================== AJUDA ========================
   if (comando === "ajuda") {
     const embed = new EmbedBuilder()
@@ -305,12 +318,14 @@ client.on("messageCreate", async message => {
 **Polícia / Infrações**
 !registrarinfracao @user valor descrição - Registrar multa
 !verantecedentes @user - Consultar antecedentes
+!sistema - Acessar sistema policial online
 
 📌 Apenas cargos autorizados podem usar comandos administrativos
       `)
       .setColor("#1f2c34");
     message.reply({ embeds: [embed] });
   }
+
 });
 
 client.on("ready", () => {
