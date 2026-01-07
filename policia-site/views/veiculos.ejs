@@ -1,1 +1,15 @@
-
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Busca Veículos</title>
+</head>
+<body>
+  <h1>🔍 Veículos Registrados</h1>
+  <ul>
+    <% for(let placa in veiculos){ %>
+      <li>Placa: <%= placa %> - Proprietário: <%= veiculos[placa].proprietario %> - Status: <%= veiculos[placa].status %></li>
+    <% } %>
+  </ul>
+  <a href="/">⬅️ Voltar</a>
+</body>
+</html>
