@@ -1,5 +1,6 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
 const fs = require("fs");
+const path = require("path");
 
 const client = new Client({
   intents: [
@@ -10,325 +11,194 @@ const client = new Client({
 });
 
 const PREFIX = "!";
-const DATA_PATH = "./data";
-const RG_FILE = `${DATA_PATH}/rgs.json`;
-const ECON_FILE = `${DATA_PATH}/economia.json`;
-const MANDADOS_FILE = `${DATA_PATH}/mandados.json`;
+const DATA = "./data";
 
-// CARGOS AUTORIZADOS
-const CARGOS_RG_EDIT = ["Fundador", "Gerente de Comunidade", "Monitor", "Administrador"];
-const CARGOS_RG_DELETE = ["Fundador", "Gerente de Comunidade", "Monitor"];
-const CARGOS_MANDADOS = ["Fundador", "Gerente de Comunidade", "Monitor"];
-const CARGOS_POLICIA = ["Polícia Civil","Polícia Militar","Polícia Federal","PRF","Polícia do Exército"];
-const CARGOS_ANTECEDENTES = ["Fundador","Gerente de Comunidade","Monitor","Administrador","Moderador"];
+// ========= UTIL =========
+function load(file) {
+  const p = path.join(DATA, file);
+  if (!fs.existsSync(p)) fs.writeFileSync(p, "{}");
+  const content = fs.readFileSync(p, "utf8");
+  if (!content) return {};
+  return JSON.parse(content);
+}
 
-// CANAIS DE LOG
-const LOG_RG = "logs-rg";
-const LOG_POLICIA = "logs-policial";
-const LOG_JUDICIARIO = "logs-judiciario";
-const LOG_ECONOMIA = "logs-economia";
+function save(file, data) {
+  fs.writeFileSync(path.join(DATA, file), JSON.stringify(data, null, 2));
+}
 
-// CRIAR PASTAS E ARQUIVOS SE NÃO EXISTIREM
-if (!fs.existsSync(DATA_PATH)) fs.mkdirSync(DATA_PATH);
-if (!fs.existsSync(RG_FILE)) fs.writeFileSync(RG_FILE, "{}");
-if (!fs.existsSync(ECON_FILE)) fs.writeFileSync(ECON_FILE, "{}");
-if (!fs.existsSync(MANDADOS_FILE)) fs.writeFileSync(MANDADOS_FILE, "{}");
+function hasRole(member, roles) {
+  return member.roles.cache.some(r => roles.includes(r.name));
+}
 
-// ======================== FUNÇÕES ========================
-function gerarNumero19() {
-  let num = "";
-  for (let i = 0; i < 19; i++) num += Math.floor(Math.random() * 10);
-  return num;
+function gerarNumero(d) {
+  let n = "";
+  for (let i = 0; i < d; i++) n += Math.floor(Math.random() * 10);
+  return n;
 }
 
 function gerarCPF() {
-  let cpf = gerarNumero19();
-  return cpf.replace(/^(\d{1})(\d{3})(\d{3})(\d{3})(\d{3})(\d{3})$/, "$1.$2.$3.$4.$5.$6");
+  const n = gerarNumero(19);
+  return `${n[0]}.${n.slice(1,4)}.${n.slice(4,7)}.${n.slice(7,10)}.${n.slice(10,13)}.${n.slice(13,16)}.${n.slice(16,19)}`;
 }
 
-function carregarJSON(file) {
-  try { return JSON.parse(fs.readFileSync(file)); }
-  catch { return {}; }
-}
-
-function salvarJSON(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
-}
-
-function calcularIdade(dataNascimento) {
-  const [dia, mes, ano] = dataNascimento.split("/").map(Number);
+function idade(data) {
+  const [d,m,a] = data.split("/").map(Number);
   const hoje = new Date();
-  let idade = hoje.getFullYear() - ano;
-  if (hoje.getMonth()+1 < mes || (hoje.getMonth()+1 === mes && hoje.getDate() < dia)) idade--;
-  return idade;
+  let i = hoje.getFullYear() - a;
+  if (hoje.getMonth()+1 < m || (hoje.getMonth()+1 === m && hoje.getDate() < d)) i--;
+  return i;
 }
 
-function logEmbed(guild, canal, titulo, descricao) {
-  const channel = guild.channels.cache.find(c => c.name === canal);
-  if (!channel) return;
-  const embed = new EmbedBuilder()
+function logEmbed(guild, canal, titulo, desc) {
+  const ch = guild.channels.cache.find(c => c.name === canal);
+  if (!ch) return;
+  const e = new EmbedBuilder()
+    .setColor("#2f3136")
     .setTitle(titulo)
-    .setDescription(descricao)
-    .setColor("#1f2c34")
+    .setDescription(desc)
     .setTimestamp();
-  channel.send({ embeds: [embed] });
+  ch.send({ embeds: [e] });
 }
 
-// ======================== EVENTO MENSAGEM ========================
+// ========= BOT =========
 client.on("messageCreate", async message => {
   if (message.author.bot || !message.content.startsWith(PREFIX)) return;
 
-  const args = message.content.slice(PREFIX.length).trim().split(" ");
-  const comando = args.shift().toLowerCase();
+  const args = message.content.slice(1).split(";");
+  const cmd = args.shift().toLowerCase();
 
-  const rgs = carregarJSON(RG_FILE);
-  const economia = carregarJSON(ECON_FILE);
-  const mandados = carregarJSON(MANDADOS_FILE);
+  const rgs = load("rgs.json");
+  const economia = load("economia.json");
+  const governo = load("governo.json");
+  const mandados = load("mandados.json");
+  const antecedentes = load("antecedentes.json");
 
-  // ======================== RG ========================
-  if (comando === "setrg") {
-    if (rgs[message.author.id]) return message.reply("❌ Você já possui um RG.");
+  // ===== AJUDA =====
+  if (cmd === "ajuda") {
+    return message.author.send(
+`🪪 RG
+!setrg Nome;Estado Civil;DD/MM/AAAA;Gênero
+!rg
+
+🚔 POLÍCIA
+!addmandado @user Motivo
+!mandadosativos
+
+🏛️ GOVERNO
+!cofregoverno
+!imposto 5
+
+💰 ECONOMIA
+!saldo
+!trabalhar
+
+⚖️ JUDICIÁRIO
+!antecedentes @user`
+    );
+  }
+
+  // ===== RG =====
+  if (cmd === "setrg") {
     if (args.length < 4) return message.reply("❌ Use: `!setrg Nome;Estado Civil;DD/MM/AAAA;Gênero`");
+    if (rgs[message.author.id]) return message.reply("❌ Você já tem RG.");
 
-    const [nome, estadoCivil, nascimento, genero] = args.join(" ").split(";");
-    const idade = calcularIdade(nascimento);
-    if (idade < 0 || idade > 120) return message.reply("❌ Data de nascimento inválida.");
+    const nasc = args[2];
+    const id = idade(nasc);
+    const validade = new Date();
+    validade.setFullYear(validade.getFullYear() + 1);
 
-    const rg = {
-      rg: gerarNumero19(),
-      nome: nome.trim(),
-      estadoCivil: estadoCivil.trim(),
-      nascimento: nascimento.trim(),
-      idade,
-      genero: genero.trim(),
+    rgs[message.author.id] = {
+      nome: args[0],
+      estado: args[1],
+      nascimento: nasc,
+      idade: id,
+      genero: args[3],
+      rg: gerarNumero(19),
       cpf: gerarCPF(),
-      validade: `${nascimento.split("/")[0]}/${nascimento.split("/")[1]}/${(Number(nascimento.split("/")[2])+20)}`,
-      antecedentes: []
+      status: "Válido",
+      validade: validade.toLocaleDateString("pt-BR"),
+      cnh: "Regular"
     };
-    rgs[message.author.id] = rg;
-    salvarJSON(RG_FILE, rgs);
 
-    message.reply("✅ **RG criado com sucesso!** Use `!rg` para visualizar.");
-    logEmbed(message.guild, LOG_RG, "Novo RG Criado", `📌 ${message.author.tag} criou seu RG.`);
+    save("rgs.json", rgs);
+    logEmbed(message.guild,"logs-rg","🪪 RG CRIADO",`${message.author.tag}`);
+    message.reply("✅ RG criado.");
   }
 
-  if (comando === "rg") {
+  if (cmd === "rg") {
     const rg = rgs[message.author.id];
-    if (!rg) return message.reply("❌ Você não possui RG.");
+    if (!rg) return message.reply("❌ Sem RG.");
 
-    const embed = new EmbedBuilder()
+    const e = new EmbedBuilder()
       .setTitle("🪪 Carteira de Identidade")
-      .setDescription("━━━━━━━━━━━━━━━━━━━━")
-      .addFields(
-        { name: "👤 Nome", value: rg.nome, inline: true },
-        { name: "🆔 RG", value: rg.rg, inline: true },
-        { name: "💍 Estado Civil", value: rg.estadoCivil, inline: true },
-        { name: "🎂 Idade", value: `${rg.idade} anos`, inline: true },
-        { name: "💳 CPF", value: rg.cpf, inline: true },
-        { name: "⚧ Gênero", value: rg.genero, inline: true },
-        { name: "📅 Validade", value: rg.validade, inline: true },
-        { name: "📋 Antecedentes", value: rg.antecedentes.length ? rg.antecedentes.map(a => `${a.data}: ${a.descricao} 💵${a.valor}`).join("\n") : "Nenhum", inline: false }
-      )
       .setColor("#1f2c34")
-      .setFooter({ text: "Documento válido apenas para roleplay" })
-      .setTimestamp();
+      .setDescription(`━━━━━━━━━━━━━━━━━━━━
+👤 Nome: ${rg.nome}
+🆔 RG: ${rg.rg}
+💍 Estado Civil: ${rg.estado}
+🎂 Idade: ${rg.idade}
+📄 CPF: ${rg.cpf}
+⚧ Gênero: ${rg.genero}
+✅ Status: ${rg.status}
+📅 Validade: ${rg.validade}
+🚔 CNH: ${rg.cnh}
+📋 Antecedentes: ${antecedentes[message.author.id] || "Nenhum"}`);
 
-    message.reply({ embeds: [embed] });
+    message.reply({ embeds:[e] });
   }
 
-  if (comando === "rgeditar") {
-    if (!message.member.roles.cache.some(r => CARGOS_RG_EDIT.includes(r.name))) return message.reply("❌ Sem permissão.");
+  // ===== ECONOMIA =====
+  if (cmd === "saldo") {
+    message.reply(`💰 Saldo: R$ ${economia[message.author.id] || 0}`);
+  }
+
+  if (cmd === "trabalhar") {
+    const ganho = Math.floor(Math.random()*300)+100;
+    economia[message.author.id] = (economia[message.author.id] || 0) + ganho;
+    save("economia.json", economia);
+    logEmbed(message.guild,"logs-economia","💼 Trabalho",`${message.author.tag} ganhou R$${ganho}`);
+    message.reply(`💼 Você ganhou R$${ganho}`);
+  }
+
+  // ===== GOVERNO =====
+  if (cmd === "cofregoverno") {
+    if (!hasRole(message.member, ["Governador","Fundador"])) return;
+    message.reply(`🏛️ Cofre: R$ ${governo.cofre || 0}`);
+  }
+
+  if (cmd === "imposto") {
+    if (!hasRole(message.member, ["Governador"])) return;
+    governo.imposto = Number(args[0]);
+    save("governo.json", governo);
+    message.reply("📊 Imposto atualizado.");
+  }
+
+  // ===== POLÍCIA =====
+  if (cmd === "addmandado") {
+    if (!hasRole(message.member, ["Polícia","Administrador"])) return;
     const user = message.mentions.users.first();
-    if (!user) return message.reply("❌ Mencione o usuário.");
-    const novoNome = args.slice(1).join(" ");
-    if (!rgs[user.id]) return message.reply("❌ Usuário não possui RG.");
-    rgs[user.id].nome = novoNome;
-    salvarJSON(RG_FILE, rgs);
-    message.reply(`✅ Nome do RG de ${user.tag} atualizado para **${novoNome}**`);
-    logEmbed(message.guild, LOG_RG, "RG Editado", `✏️ ${message.author.tag} alterou o RG de ${user.tag} para ${novoNome}`);
+    if (!user) return;
+    mandados[user.id] = args.join(" ");
+    save("mandados.json", mandados);
+    logEmbed(message.guild,"logs-policial","🚨 Mandado criado",`${user.tag}`);
+    message.reply("✅ Mandado registrado.");
   }
 
-  if (comando === "rgdeletar") {
-    if (!message.member.roles.cache.some(r => CARGOS_RG_DELETE.includes(r.name))) return message.reply("❌ Sem permissão.");
+  if (cmd === "mandadosativos") {
+    let txt = Object.entries(mandados).map(([id,m])=>`<@${id}>: ${m}`).join("\n");
+    if (!txt) txt = "Nenhum.";
+    message.reply(txt);
+  }
+
+  // ===== JUDICIÁRIO =====
+  if (cmd === "antecedentes") {
     const user = message.mentions.users.first();
-    if (!user || !rgs[user.id]) return message.reply("❌ Usuário não possui RG.");
-    delete rgs[user.id];
-    salvarJSON(RG_FILE, rgs);
-    message.reply(`🗑️ RG de ${user.tag} deletado.`);
-    logEmbed(message.guild, LOG_RG, "RG Deletado", `🗑️ ${message.author.tag} deletou o RG de ${user.tag}`);
+    if (!user) return;
+    message.reply(`📋 Antecedentes: ${antecedentes[user.id] || "Nenhum"}`);
   }
-
-  // ======================== ECONOMIA ========================
-  if (comando === "saldo") {
-    if (!economia[message.author.id]) economia[message.author.id] = { dinheiro: 0, banco: 0 };
-    const embed = new EmbedBuilder()
-      .setTitle("💰 Saldo")
-      .setDescription(`💵 Dinheiro: ${economia[message.author.id].dinheiro}\n🏦 Banco: ${economia[message.author.id].banco}`)
-      .setColor("#1f2c34");
-    message.reply({ embeds: [embed] });
-  }
-
-  if (comando === "depositar") {
-    const valor = parseInt(args[0]);
-    if (!valor || valor <= 0) return message.reply("❌ Valor inválido.");
-    if (!economia[message.author.id]) economia[message.author.id] = { dinheiro: 0, banco: 0 };
-    if (economia[message.author.id].dinheiro < valor) return message.reply("❌ Você não tem esse dinheiro.");
-    economia[message.author.id].dinheiro -= valor;
-    economia[message.author.id].banco += valor;
-    salvarJSON(ECON_FILE, economia);
-    message.reply(`✅ Depositou 💵 ${valor}`);
-    logEmbed(message.guild, LOG_ECONOMIA, "Depósito", `${message.author.tag} depositou 💵 ${valor}`);
-  }
-
-  if (comando === "sacar") {
-    const valor = parseInt(args[0]);
-    if (!valor || valor <= 0) return message.reply("❌ Valor inválido.");
-    if (!economia[message.author.id]) economia[message.author.id] = { dinheiro: 0, banco: 0 };
-    if (economia[message.author.id].banco < valor) return message.reply("❌ Saldo insuficiente.");
-    economia[message.author.id].banco -= valor;
-    economia[message.author.id].dinheiro += valor;
-    salvarJSON(ECON_FILE, economia);
-    message.reply(`✅ Sacou 💵 ${valor}`);
-    logEmbed(message.guild, LOG_ECONOMIA, "Saque", `${message.author.tag} sacou 💵 ${valor}`);
-  }
-
-  if (comando === "transferir") {
-    const user = message.mentions.users.first();
-    const valor = parseInt(args[1]);
-    if (!user || !valor || valor <= 0) return message.reply("❌ Uso: `!transferir @user valor`");
-    if (!economia[message.author.id]) economia[message.author.id] = { dinheiro: 0, banco: 0 };
-    if (!economia[user.id]) economia[user.id] = { dinheiro: 0, banco: 0 };
-    if (economia[message.author.id].dinheiro < valor) return message.reply("❌ Saldo insuficiente.");
-    economia[message.author.id].dinheiro -= valor;
-    economia[user.id].dinheiro += valor;
-    salvarJSON(ECON_FILE, economia);
-    message.reply(`✅ Transferiu 💵 ${valor} para ${user.tag}`);
-    logEmbed(message.guild, LOG_ECONOMIA, "Transferência", `${message.author.tag} transferiu 💵 ${valor} para ${user.tag}`);
-  }
-
-  if (comando === "trabalho") {
-    if (!economia[message.author.id]) economia[message.author.id] = { dinheiro: 0, banco: 0 };
-    const valor = Math.floor(Math.random() * 500) + 100;
-    economia[message.author.id].dinheiro += valor;
-    salvarJSON(ECON_FILE, economia);
-    message.reply(`💼 Você completou um trabalho diário e recebeu 💵 ${valor}`);
-    logEmbed(message.guild, LOG_ECONOMIA, "Trabalho Diário", `${message.author.tag} recebeu 💵 ${valor} no trabalho diário`);
-  }
-
-  // ======================== MANDADOS ========================
-  if (comando === "mandado") {
-    if (!message.member.roles.cache.some(r => CARGOS_MANDADOS.includes(r.name))) return message.reply("❌ Sem permissão.");
-    const user = message.mentions.users.first();
-    if (!user) return message.reply("❌ Mencione o usuário.");
-    mandados[user.id] = { autor: message.author.tag, data: new Date().toLocaleString() };
-    salvarJSON(MANDADOS_FILE, mandados);
-    message.reply(`✅ Mandado criado para ${user.tag}`);
-    logEmbed(message.guild, LOG_JUDICIARIO, "Mandado Criado", `${message.author.tag} criou mandado para ${user.tag}`);
-  }
-
-  if (comando === "mandadosativos") {
-    const embed = new EmbedBuilder()
-      .setTitle("📋 Mandados Ativos")
-      .setDescription(Object.entries(mandados).map(([id, info]) => `<@${id}> - Criado por: ${info.autor}`).join("\n") || "Nenhum mandado ativo")
-      .setColor("#1f2c34");
-    message.reply({ embeds: [embed] });
-  }
-
-  if (comando === "removermandado") {
-    if (!message.member.roles.cache.some(r => CARGOS_MANDADOS.includes(r.name))) return message.reply("❌ Sem permissão.");
-    const user = message.mentions.users.first();
-    if (!user || !mandados[user.id]) return message.reply("❌ Usuário sem mandado.");
-    delete mandados[user.id];
-    salvarJSON(MANDADOS_FILE, mandados);
-    message.reply(`✅ Mandado removido de ${user.tag}`);
-    logEmbed(message.guild, LOG_JUDICIARIO, "Mandado Removido", `${message.author.tag} removeu mandado de ${user.tag}`);
-  }
-
-  // ======================== POLÍCIA / INFRAÇÕES ========================
-  if (comando === "registrarinfracao") {
-    if (!message.member.roles.cache.some(r => CARGOS_POLICIA.includes(r.name))) return message.reply("❌ Apenas policiais podem registrar infrações.");
-    const user = message.mentions.users.first();
-    const valor = parseInt(args[1]);
-    const descricao = args.slice(2).join(" ");
-    if (!user || !valor || !descricao) return message.reply("❌ Uso: !registrarinfracao @user valor descrição");
-    if (!rgs[user.id]) return message.reply("❌ Usuário não possui RG.");
-    if (!economia[user.id]) economia[user.id] = { dinheiro: 0, banco: 0 };
-
-    // descontar multa
-    economia[user.id].dinheiro -= valor;
-    if (!rgs[user.id].antecedentes) rgs[user.id].antecedentes = [];
-    rgs[user.id].antecedentes.push({ data: new Date().toLocaleDateString(), descricao, valor });
-
-    salvarJSON(RG_FILE, rgs);
-    salvarJSON(ECON_FILE, economia);
-
-    message.reply(`✅ Infração registrada para ${user.tag}, multa de 💵 ${valor} aplicada.`);
-    logEmbed(message.guild, LOG_POLICIA, "Infração Registrada", `${message.author.tag} aplicou multa de 💵 ${valor} a ${user.tag}: ${descricao}`);
-  }
-
-  if (comando === "verantecedentes") {
-    if (!message.member.roles.cache.some(r => CARGOS_ANTECEDENTES.includes(r.name))) return message.reply("❌ Sem permissão.");
-    const user = message.mentions.users.first();
-    if (!user || !rgs[user.id]) return message.reply("❌ Usuário não possui RG.");
-    const antecedentes = rgs[user.id].antecedentes || [];
-    const embed = new EmbedBuilder()
-      .setTitle(`🔍 Antecedentes de ${user.tag}`)
-      .setDescription(antecedentes.map(a => `📅 ${a.data} - ${a.descricao} - 💵 ${a.valor}`).join("\n") || "Nenhum antecedente")
-      .setColor("#1f2c34");
-    message.reply({ embeds: [embed] });
-    logEmbed(message.guild, LOG_JUDICIARIO, "Consulta de Antecedentes", `${message.author.tag} consultou antecedentes de ${user.tag}`);
-  }
-
-  // ======================== SISTEMA RP ========================
-  if (comando === "sistema") {
-    // Permitir cargos policiais ou Fundador
-    if (
-      !message.member.roles.cache.some(r => CARGOS_POLICIA.includes(r.name)) &&
-      !message.member.roles.cache.some(r => r.name === "Fundador")
-    ) {
-      return message.reply("❌ Apenas cargos policiais ou Fundador podem acessar o sistema.");
-    }
-
-    message.reply("🚓 Sistema Policial:\n👉 https://SEU-SITE.onrender.com");
-  }
-
-  // ======================== AJUDA ========================
-  if (comando === "ajuda") {
-    const embed = new EmbedBuilder()
-      .setTitle("📬 Lista de Comandos")
-      .setDescription(`
-**RG / Documentos**
-!setrg Nome;Estado Civil;DD/MM/AAAA;Gênero - Criar RG
-!rg - Ver seu RG
-!rgeditar @user Nome - Editar nome do RG
-!rgdeletar @user - Deletar RG
-
-**Economia**
-!saldo - Ver saldo
-!depositar valor
-!sacar valor
-!transferir @user valor
-!trabalho - Missão diária
-
-**Judiciário / Mandados**
-!mandado @user - Criar mandado
-!mandadosativos - Ver mandados ativos
-!removermandado @user - Remover mandado
-
-**Polícia / Infrações**
-!registrarinfracao @user valor descrição - Registrar multa
-!verantecedentes @user - Consultar antecedentes
-!sistema - Acessar sistema policial online
-
-📌 Apenas cargos autorizados podem usar comandos administrativos
-      `)
-      .setColor("#1f2c34");
-    message.reply({ embeds: [embed] });
-  }
-
 });
 
-client.on("ready", () => {
+client.once("ready", () => {
   console.log(`✅ Bot online como ${client.user.tag}`);
 });
 
