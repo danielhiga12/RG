@@ -1,1 +1,20 @@
-
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Consulta RG</title>
+</head>
+<body>
+  <h1>🪪 RG de <%= rg.nome %></h1>
+  <ul>
+    <li>🆔 RG: <%= rg.rg %></li>
+    <li>💍 Estado Civil: <%= rg.estadoCivil %></li>
+    <li>🎂 Idade: <%= rg.idade %></li>
+    <li>📄 CPF: <%= rg.cpf %></li>
+    <li>⚧ Gênero: <%= rg.genero %></li>
+    <li>✅ Status: <%= rg.status %></li>
+    <li>📅 Validade: <%= rg.validade %></li>
+    <li>📋 Antecedentes: <%= rg.antecedentes.length %></li>
+  </ul>
+  <a href="/">⬅️ Voltar</a>
+</body>
+</html>
