@@ -1,15 +1,16 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Busca Veículos</title>
-</head>
-<body>
-  <h1>🔍 Veículos Registrados</h1>
-  <ul>
-    <% for(let placa in veiculos){ %>
-      <li>Placa: <%= placa %> - Proprietário: <%= veiculos[placa].proprietario %> - Status: <%= veiculos[placa].status %></li>
-    <% } %>
-  </ul>
-  <a href="/">⬅️ Voltar</a>
-</body>
-</html>
+<% layout('layout') %>
+<h1>🚗 Veículos Registrados</h1>
+<table>
+  <tr>
+    <th>Placa</th>
+    <th>Proprietário</th>
+    <th>Status</th>
+  </tr>
+  <% for(let placa in veiculos){ %>
+    <tr>
+      <td><%= placa %></td>
+      <td><%= veiculos[placa].proprietario %></td>
+      <td><%= veiculos[placa].status %></td>
+    </tr>
+  <% } %>
+</table>
