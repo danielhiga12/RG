@@ -1,56 +1,66 @@
 const express = require("express");
-const fs = require("fs");
-const cors = require("cors");
-require("dotenv").config();
+const bodyParser = require("body-parser");
+const fs = require("fs-extra");
+const path = require("path");
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+const PORT = process.env.PORT || 3000;
+
+app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
+app.set("view engine", "ejs");
 
-const RG_FILE = "./data/rgs.json";
-const MULTAS_FILE = "./data/multas.json";
-const VEICULOS_FILE = "./data/veiculos.json";
+const RG_FILE = path.join(__dirname, "data/rgs.json");
+const MULTAS_FILE = path.join(__dirname, "data/multas.json");
+const VEICULOS_FILE = path.join(__dirname, "data/veiculos.json");
 
+// Carregar JSONs
 function carregarJSON(file) {
-  if (!fs.existsSync(file)) fs.writeFileSync(file, "{}");
-  const data = fs.readFileSync(file);
-  if (data.length === 0) return {};
-  return JSON.parse(data);
+  if (!fs.existsSync(file)) fs.writeJsonSync(file, {});
+  return fs.readJsonSync(file);
 }
 
+// Salvar JSONs
 function salvarJSON(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  fs.writeJsonSync(file, data, { spaces: 2 });
 }
 
-// Buscar RG
+// ================= ROTAS ===================
+
+// Página inicial
+app.get("/", (req, res) => {
+  res.render("index");
+});
+
+// Consultar RG
 app.get("/rg/:id", (req, res) => {
   const rgs = carregarJSON(RG_FILE);
   const rg = rgs[req.params.id];
-  if (!rg) return res.status(404).json({ error: "RG não encontrado" });
-  res.json(rg);
+  if (!rg) return res.send("❌ RG não encontrado.");
+  res.render("rg", { rg });
 });
 
 // Registrar multa
-app.post("/multas", (req, res) => {
-  const { idUser, valor, descricao } = req.body;
-  if (!idUser || !valor || !descricao) return res.status(400).json({ error: "Dados incompletos" });
-  
-  const rgs = carregarJSON(RG_FILE);
-  if (!rgs[idUser]) return res.status(404).json({ error: "RG não encontrado" });
-
-  if (!rgs[idUser].antecedentes) rgs[idUser].antecedentes = [];
-  rgs[idUser].antecedentes.push({ data: new Date().toLocaleDateString(), descricao, valor });
-
-  salvarJSON(RG_FILE, rgs);
-
+app.get("/multas", (req, res) => {
   const multas = carregarJSON(MULTAS_FILE);
-  if (!multas[idUser]) multas[idUser] = [];
-  multas[idUser].push({ data: new Date().toLocaleString(), descricao, valor });
-  salvarJSON(MULTAS_FILE, multas);
-
-  res.json({ sucesso: true });
+  res.render("multas", { multas });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚔 Sistema Policial rodando na porta ${PORT}`));
+app.post("/multas", (req, res) => {
+  const { rg, descricao, valor } = req.body;
+  const multas = carregarJSON(MULTAS_FILE);
+  if (!multas[rg]) multas[rg] = [];
+  multas[rg].push({ descricao, valor, data: new Date().toLocaleString() });
+  salvarJSON(MULTAS_FILE, multas);
+  res.redirect("/multas");
+});
+
+// Busca de veículos
+app.get("/veiculos", (req, res) => {
+  const veiculos = carregarJSON(VEICULOS_FILE);
+  res.render("veiculos", { veiculos });
+});
+
+app.listen(PORT, () => {
+  console.log(`🚔 Polícia Site online na porta ${PORT}`);
+});
