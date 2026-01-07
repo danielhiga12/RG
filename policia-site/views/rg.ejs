@@ -1,20 +1,13 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Consulta RG</title>
-</head>
-<body>
-  <h1>🪪 RG de <%= rg.nome %></h1>
-  <ul>
-    <li>🆔 RG: <%= rg.rg %></li>
-    <li>💍 Estado Civil: <%= rg.estadoCivil %></li>
-    <li>🎂 Idade: <%= rg.idade %></li>
-    <li>📄 CPF: <%= rg.cpf %></li>
-    <li>⚧ Gênero: <%= rg.genero %></li>
-    <li>✅ Status: <%= rg.status %></li>
-    <li>📅 Validade: <%= rg.validade %></li>
-    <li>📋 Antecedentes: <%= rg.antecedentes.length %></li>
-  </ul>
-  <a href="/">⬅️ Voltar</a>
-</body>
-</html>
+<% layout('layout') %>
+<h1>🪪 RG de <%= rg.nome %></h1>
+<table>
+  <tr><th>🆔 RG</th><td><%= rg.rg %></td></tr>
+  <tr><th>👤 Nome</th><td><%= rg.nome %></td></tr>
+  <tr><th>💍 Estado Civil</th><td><%= rg.estadoCivil %></td></tr>
+  <tr><th>🎂 Idade</th><td><%= rg.idade %></td></tr>
+  <tr><th>📄 CPF</th><td><%= rg.cpf %></td></tr>
+  <tr><th>⚧ Gênero</th><td><%= rg.genero %></td></tr>
+  <tr><th>✅ Status</th><td><%= rg.status %></td></tr>
+  <tr><th>📅 Validade</th><td><%= rg.validade %></td></tr>
+  <tr><th>📋 Antecedentes</th><td><%= rg.antecedentes.length %></td></tr>
+</table>
