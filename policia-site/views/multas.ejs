@@ -1,1 +1,28 @@
-
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Registro de Multas</title>
+</head>
+<body>
+  <h1>🚨 Registrar Multa</h1>
+  <form action="/multas" method="POST">
+    <input type="text" name="rg" placeholder="Número do RG" required><br>
+    <input type="text" name="descricao" placeholder="Descrição" required><br>
+    <input type="number" name="valor" placeholder="Valor (R$)" required><br>
+    <button type="submit">Registrar</button>
+  </form>
+  <h2>Multas Registradas</h2>
+  <ul>
+    <% for(let rg in multas){ %>
+      <li><strong>RG: <%= rg %></strong>
+        <ul>
+          <% multas[rg].forEach(m => { %>
+            <li><%= m.data %> - <%= m.descricao %> - R$ <%= m.valor %></li>
+          <% }) %>
+        </ul>
+      </li>
+    <% } %>
+  </ul>
+  <a href="/">⬅️ Voltar</a>
+</body>
+</html>
