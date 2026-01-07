@@ -1,17 +1,12 @@
 {
   "name": "laguna-roleplay",
   "version": "1.0.0",
-  "main": "bot/index.js",
+  "main": "index.js",
+  "type": "commonjs",
   "scripts": {
-    "start:bot": "node bot/index.js",
-    "start:site": "node policia-site/index.js"
+    "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.11.0",
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "body-parser": "^1.20.2",
-    "dotenv": "^16.3.1",
-    "axios": "^1.6.2"
+    "discord.js": "^14.14.1"
   }
 }
