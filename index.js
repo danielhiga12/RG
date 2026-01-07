@@ -11,191 +11,199 @@ const client = new Client({
 });
 
 const PREFIX = "!";
-const DATA = "./data";
+const DATA_DIR = "./data";
 
-// ========= UTIL =========
-function load(file) {
-  const p = path.join(DATA, file);
+// ====== ARQUIVOS ======
+const FILES = {
+  rgs: "rgs.json",
+  economy: "economy.json",
+  mandados: "mandados.json",
+  processos: "processos.json",
+  impostos: "impostos.json"
+};
+
+// ====== CARGOS ======
+const CARGOS = {
+  FUNDADOR: "Fundador",
+  GOVERNADOR: "Governador",
+  POLICIA: ["Polícia Civil", "Polícia Militar", "Polícia Federal", "PRF", "Polícia do Exército"],
+  JUDICIARIO: ["Juiz", "Promotor"],
+  STAFF_RG: ["Fundador", "Administrador", "Gerente de Comunidade", "Monitor"],
+  MEDICO: ["Medico", "Paramedico"]
+};
+
+// ====== LOGS ======
+const LOG_CHANNELS = {
+  RG: "logs-rg",
+  POLICIA: "logs-policia",
+  JUDICIARIO: "logs-judiciario",
+  ECONOMIA: "logs-economia",
+  GOVERNO: "logs-governo"
+};
+
+// ====== SETUP ======
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+for (const f of Object.values(FILES)) {
+  const p = path.join(DATA_DIR, f);
   if (!fs.existsSync(p)) fs.writeFileSync(p, "{}");
-  const content = fs.readFileSync(p, "utf8");
-  if (!content) return {};
-  return JSON.parse(content);
 }
 
-function save(file, data) {
-  fs.writeFileSync(path.join(DATA, file), JSON.stringify(data, null, 2));
-}
+const load = f => JSON.parse(fs.readFileSync(path.join(DATA_DIR, f)));
+const save = (f, d) => fs.writeFileSync(path.join(DATA_DIR, f), JSON.stringify(d, null, 2));
 
-function hasRole(member, roles) {
-  return member.roles.cache.some(r => roles.includes(r.name));
-}
+const hasRole = (m, roles) =>
+  m.member.roles.cache.some(r => Array.isArray(roles) ? roles.includes(r.name) : r.name === roles);
 
-function gerarNumero(d) {
-  let n = "";
-  for (let i = 0; i < d; i++) n += Math.floor(Math.random() * 10);
-  return n;
-}
+const logEmbed = async (guild, type, embed) => {
+  const ch = guild.channels.cache.find(c => c.name === LOG_CHANNELS[type]);
+  if (ch) ch.send({ embeds: [embed] });
+};
 
-function gerarCPF() {
+// ====== UTIL ======
+const gerarNumero = n => Array.from({ length: n }, () => Math.floor(Math.random() * 10)).join("");
+
+const gerarCPF = () => {
   const n = gerarNumero(19);
-  return `${n[0]}.${n.slice(1,4)}.${n.slice(4,7)}.${n.slice(7,10)}.${n.slice(10,13)}.${n.slice(13,16)}.${n.slice(16,19)}`;
-}
+  return `${n.slice(0,1)}.${n.slice(1,4)}.${n.slice(4,7)}.${n.slice(7,10)}.${n.slice(10,13)}.${n.slice(13,16)}.${n.slice(16,19)}`;
+};
 
-function idade(data) {
-  const [d,m,a] = data.split("/").map(Number);
-  const hoje = new Date();
-  let i = hoje.getFullYear() - a;
-  if (hoje.getMonth()+1 < m || (hoje.getMonth()+1 === m && hoje.getDate() < d)) i--;
+const idade = data => {
+  const [d,m,y] = data.split("/").map(Number);
+  const h = new Date();
+  let i = h.getFullYear() - y;
+  if (h.getMonth()+1 < m || (h.getMonth()+1 === m && h.getDate() < d)) i--;
   return i;
-}
+};
 
-function logEmbed(guild, canal, titulo, desc) {
-  const ch = guild.channels.cache.find(c => c.name === canal);
-  if (!ch) return;
-  const e = new EmbedBuilder()
-    .setColor("#2f3136")
-    .setTitle(titulo)
-    .setDescription(desc)
-    .setTimestamp();
-  ch.send({ embeds: [e] });
-}
+const validadeRG = data => {
+  const [d,m,y] = data.split("/").map(Number);
+  return `${d}/${m}/${y+20}`;
+};
 
-// ========= BOT =========
+// ====== BOT ======
 client.on("messageCreate", async message => {
   if (message.author.bot || !message.content.startsWith(PREFIX)) return;
 
-  const args = message.content.slice(1).split(";");
-  const cmd = args.shift().toLowerCase();
+  const [cmd, ...rest] = message.content.slice(1).split(" ");
+  const args = rest.join(" ").split(";");
 
-  const rgs = load("rgs.json");
-  const economia = load("economia.json");
-  const governo = load("governo.json");
-  const mandados = load("mandados.json");
-  const antecedentes = load("antecedentes.json");
+  const rgs = load(FILES.rgs);
+  const economy = load(FILES.economy);
+  const mandados = load(FILES.mandados);
 
-  // ===== AJUDA =====
+  // ====== AJUDA ======
   if (cmd === "ajuda") {
     return message.author.send(
-`🪪 RG
-!setrg Nome;Estado Civil;DD/MM/AAAA;Gênero
-!rg
-
-🚔 POLÍCIA
-!addmandado @user Motivo
-!mandadosativos
-
-🏛️ GOVERNO
-!cofregoverno
-!imposto 5
-
-💰 ECONOMIA
-!saldo
-!trabalhar
-
-⚖️ JUDICIÁRIO
-!antecedentes @user`
+      "📜 **Comandos RP Disponíveis**\n" +
+      "🪪 RG: !setrg !rg !consultar !rgeditar !rgdeletar\n" +
+      "🚔 Polícia: !multa !addmandado !mandosativos !removermandado\n" +
+      "⚖️ Judiciário: !cassarcnh !regularcnh !verantecedentes\n" +
+      "💰 Economia: !saldo !transferir\n" +
+      "🏛️ Governo: !sitio !decretarimposto\n"
     );
   }
 
-  // ===== RG =====
+  // ====== SET RG ======
   if (cmd === "setrg") {
     if (args.length < 4) return message.reply("❌ Use: `!setrg Nome;Estado Civil;DD/MM/AAAA;Gênero`");
-    if (rgs[message.author.id]) return message.reply("❌ Você já tem RG.");
+    if (rgs[message.author.id]) return message.reply("❌ Você já possui RG.");
 
-    const nasc = args[2];
-    const id = idade(nasc);
-    const validade = new Date();
-    validade.setFullYear(validade.getFullYear() + 1);
+    const id = idade(args[2]);
+    if (id < 0 || id > 120) return message.reply("❌ Data inválida.");
 
     rgs[message.author.id] = {
       nome: args[0],
-      estado: args[1],
-      nascimento: nasc,
+      estadoCivil: args[1],
+      nascimento: args[2],
       idade: id,
       genero: args[3],
       rg: gerarNumero(19),
       cpf: gerarCPF(),
       status: "Válido",
-      validade: validade.toLocaleDateString("pt-BR"),
-      cnh: "Regular"
+      validade: validadeRG(args[2]),
+      cnh: "Regular",
+      antecedentes: "Nenhum"
     };
 
-    save("rgs.json", rgs);
-    logEmbed(message.guild,"logs-rg","🪪 RG CRIADO",`${message.author.tag}`);
-    message.reply("✅ RG criado.");
+    save(FILES.rgs, rgs);
+    message.reply("✅ RG criado com sucesso!");
   }
 
-  if (cmd === "rg") {
-    const rg = rgs[message.author.id];
-    if (!rg) return message.reply("❌ Sem RG.");
+  // ====== VER RG ======
+  if (cmd === "rg" || cmd === "consultar") {
+    const user = message.mentions.users.first() || message.author;
+    const rg = rgs[user.id];
+    if (!rg) return message.reply("❌ RG não encontrado.");
 
-    const e = new EmbedBuilder()
+    const completo = hasRole(message, CARGOS.STAFF_RG);
+
+    const embed = new EmbedBuilder()
       .setTitle("🪪 Carteira de Identidade")
-      .setColor("#1f2c34")
-      .setDescription(`━━━━━━━━━━━━━━━━━━━━
+      .setDescription(
+`━━━━━━━━━━━━━━━━━━━━
 👤 Nome: ${rg.nome}
 🆔 RG: ${rg.rg}
-💍 Estado Civil: ${rg.estado}
+💍 Estado Civil: ${rg.estadoCivil}
 🎂 Idade: ${rg.idade}
-📄 CPF: ${rg.cpf}
+📄 CPF: ${completo ? rg.cpf : "🔒 Protegido"}
 ⚧ Gênero: ${rg.genero}
 ✅ Status: ${rg.status}
 📅 Validade: ${rg.validade}
 🚔 CNH: ${rg.cnh}
-📋 Antecedentes: ${antecedentes[message.author.id] || "Nenhum"}`);
+📋 Antecedentes: ${rg.antecedentes}`
+      );
 
-    message.reply({ embeds:[e] });
+    return message.reply({ embeds: [embed] });
   }
 
-  // ===== ECONOMIA =====
-  if (cmd === "saldo") {
-    message.reply(`💰 Saldo: R$ ${economia[message.author.id] || 0}`);
+  // ====== MULTA ======
+  if (cmd === "multa") {
+    if (!hasRole(message, CARGOS.POLICIA)) return;
+    const user = message.mentions.users.first();
+    const valor = Number(rest[1]);
+    if (!user || !valor) return;
+
+    economy["governo"] = (economy["governo"] || 0) + valor;
+    save(FILES.economy, economy);
+
+    logEmbed(message.guild, "POLICIA",
+      new EmbedBuilder().setTitle("🚔 Multa Aplicada")
+      .setDescription(`👤 ${user.tag}\n💰 Valor: ${valor}`)
+    );
+
+    message.reply("✅ Multa aplicada.");
   }
 
-  if (cmd === "trabalhar") {
-    const ganho = Math.floor(Math.random()*300)+100;
-    economia[message.author.id] = (economia[message.author.id] || 0) + ganho;
-    save("economia.json", economia);
-    logEmbed(message.guild,"logs-economia","💼 Trabalho",`${message.author.tag} ganhou R$${ganho}`);
-    message.reply(`💼 Você ganhou R$${ganho}`);
-  }
-
-  // ===== GOVERNO =====
-  if (cmd === "cofregoverno") {
-    if (!hasRole(message.member, ["Governador","Fundador"])) return;
-    message.reply(`🏛️ Cofre: R$ ${governo.cofre || 0}`);
-  }
-
-  if (cmd === "imposto") {
-    if (!hasRole(message.member, ["Governador"])) return;
-    governo.imposto = Number(args[0]);
-    save("governo.json", governo);
-    message.reply("📊 Imposto atualizado.");
-  }
-
-  // ===== POLÍCIA =====
+  // ====== MANDADOS ======
   if (cmd === "addmandado") {
-    if (!hasRole(message.member, ["Polícia","Administrador"])) return;
+    if (!hasRole(message, CARGOS.POLICIA)) return;
     const user = message.mentions.users.first();
-    if (!user) return;
-    mandados[user.id] = args.join(" ");
-    save("mandados.json", mandados);
-    logEmbed(message.guild,"logs-policial","🚨 Mandado criado",`${user.tag}`);
-    message.reply("✅ Mandado registrado.");
+    mandados[user.id] = true;
+    save(FILES.mandados, mandados);
+    message.reply("📄 Mandado registrado.");
   }
 
-  if (cmd === "mandadosativos") {
-    let txt = Object.entries(mandados).map(([id,m])=>`<@${id}>: ${m}`).join("\n");
-    if (!txt) txt = "Nenhum.";
-    message.reply(txt);
+  if (cmd === "mandosativos") {
+    return message.reply(`📋 Mandados ativos: ${Object.keys(mandados).length}`);
   }
 
-  // ===== JUDICIÁRIO =====
-  if (cmd === "antecedentes") {
+  if (cmd === "removermandado") {
+    if (!hasRole(message, CARGOS.POLICIA)) return;
     const user = message.mentions.users.first();
-    if (!user) return;
-    message.reply(`📋 Antecedentes: ${antecedentes[user.id] || "Nenhum"}`);
+    delete mandados[user.id];
+    save(FILES.mandados, mandados);
+    message.reply("🗑️ Mandado removido.");
   }
+
+  // ====== GOVERNO ======
+  if (cmd === "sitio") {
+    if (!hasRole(message, CARGOS.GOVERNADOR)) return;
+    logEmbed(message.guild, "GOVERNO",
+      new EmbedBuilder().setTitle("🚨 Estado de Sítio Declarado")
+    );
+    message.reply("🚨 Estado de sítio ativo.");
+  }
+
 });
 
 client.once("ready", () => {
