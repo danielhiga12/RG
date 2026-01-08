@@ -11,12 +11,11 @@ const client = new Client({
 
 const PREFIX = "!";
 
-// ===== STAFF =====
+// ===== CARGOS STAFF =====
 const STAFF = [
   "Fundador",
   "Gerente de Comunidade",
-  "Administrador",
-  "Moderador",
+  "Monitor",
 ];
 
 // ===== FUNÇÕES =====
@@ -33,15 +32,14 @@ function isStaff(member) {
   return member.roles.cache.some(r => STAFF.includes(r.name));
 }
 
-function gerarCPF() {
-  const n = () => Math.floor(Math.random() * 10);
-  return `${n()}.${n()}${n()}${n()}.${n()}${n()}${n()}.${n()}${n()}${n()}.${n()}${n()}${n()}.${n()}${n()}${n()}`;
+function gerarNumero(tamanho) {
+  let n = "";
+  for (let i = 0; i < tamanho; i++) n += Math.floor(Math.random() * 10);
+  return n;
 }
 
-function gerarRG() {
-  let rg = "";
-  for (let i = 0; i < 19; i++) rg += Math.floor(Math.random() * 10);
-  return rg;
+function gerarCPF() {
+  return `${gerarNumero(1)}.${gerarNumero(3)}.${gerarNumero(3)}.${gerarNumero(3)}.${gerarNumero(3)}.${gerarNumero(2)}`;
 }
 
 function logEconomia(guild, titulo, descricao) {
@@ -58,12 +56,12 @@ function logEconomia(guild, titulo, descricao) {
 }
 
 // ===== DADOS =====
-let rgs = load("./data/rgs.json");
 let economia = load("./data/economia.json");
+let rgs = load("./data/rgs.json");
 
 // ===== READY =====
 client.once("ready", () => {
-  console.log(`✅ Bot online: ${client.user.tag}`);
+  console.log(`✅ Bot online como ${client.user.tag}`);
 });
 
 // ===== COMANDOS =====
@@ -72,7 +70,7 @@ client.on("messageCreate", async (message) => {
 
   const args = message.content.slice(1).trim().split(/ +/g);
   const cmd = args.shift().toLowerCase();
-  const mention = message.mentions.users.first();
+  const user = message.mentions.users.first();
 
   economia[message.author.id] ??= { carteira: 0 };
 
@@ -91,14 +89,14 @@ client.on("messageCreate", async (message) => {
 
     rgs[message.author.id] = {
       nome,
-      rg: gerarRG(),
-      cpf: gerarCPF(),
       estadoCivil,
       nascimento,
       idade,
       genero,
+      rg: gerarNumero(19),
+      cpf: gerarCPF(),
+      validade: Date.now() + 1000 * 60 * 60 * 24 * 365,
       status: "Válido",
-      validade: "31/12/2026",
     };
 
     economia[message.author.id].carteira += 1000;
@@ -106,10 +104,10 @@ client.on("messageCreate", async (message) => {
     save("./data/rgs.json", rgs);
     save("./data/economia.json", economia);
 
-    message.reply("🪪 RG criado com sucesso!\n💰 R$1000 adicionados à carteira");
+    message.reply("🪪 RG criado com sucesso | 💰 R$1000 adicionados");
   }
 
-  // ===== VER PRÓPRIO RG =====
+  // ===== VER RG =====
   if (cmd === "rg") {
     const rg = rgs[message.author.id];
     if (!rg) return message.reply("❌ Você não possui RG");
@@ -118,168 +116,113 @@ client.on("messageCreate", async (message) => {
       .setTitle("🪪 Registro Geral")
       .setColor("Blue")
       .setDescription(
-`👤 Nome: ${rg.nome}
-🆔 RG: ${rg.rg}
-🎂 Idade: ${rg.idade}
-📄 CPF: ${rg.cpf}
-⚧ Gênero: ${rg.genero}
-📅 Validade: ${rg.validade}
-✅ Status: ${rg.status}`
+`👤 **Nome:** ${rg.nome}
+🆔 **RG:** ${rg.rg}
+🎂 **Idade:** ${rg.idade}
+📄 **CPF:** ${rg.cpf}
+⚧ **Gênero:** ${rg.genero}
+📅 **Validade:** ${new Date(rg.validade).toLocaleDateString()}
+✅ **Status:** ${rg.status}`
       );
 
     message.channel.send({ embeds: [embed] });
-  }
-
-  // ===== CONSULTAR (STAFF) =====
-  if (cmd === "consultar") {
-    if (!isStaff(message.member))
-      return message.reply("❌ Apenas staff");
-
-    let rg;
-
-    if (mention) rg = rgs[mention.id];
-    else {
-      const termo = args[0];
-      rg = Object.values(rgs).find(r => r.cpf === termo || r.rg === termo);
-    }
-
-    if (!rg) return message.reply("❌ RG não encontrado");
-
-    const embed = new EmbedBuilder()
-      .setTitle("🔍 Consulta de RG")
-      .setColor("Red")
-      .setDescription(
-`👤 Nome: ${rg.nome}
-🆔 RG: ${rg.rg}
-📄 CPF: ${rg.cpf}
-🎂 Idade: ${rg.idade}
-📅 Validade: ${rg.validade}
-✅ Status: ${rg.status}`
-      );
-
-    message.channel.send({ embeds: [embed] });
-  }
-
-  // ===== EDITAR RG (STAFF) =====
-  if (cmd === "rgeditar") {
-    if (!isStaff(message.member)) return;
-    if (!mention) return message.reply("❌ Marque um usuário");
-
-    const campo = args[1];
-    const valor = args.slice(2).join(" ");
-
-    if (!rgs[mention.id]) return message.reply("❌ RG não encontrado");
-
-    rgs[mention.id][campo] = valor;
-    save("./data/rgs.json", rgs);
-
-    message.reply("✅ RG atualizado");
-  }
-
-  // ===== DELETAR RG (STAFF) =====
-  if (cmd === "rgdeletar") {
-    if (!isStaff(message.member)) return;
-    if (!mention) return;
-
-    delete rgs[mention.id];
-    save("./data/rgs.json", rgs);
-
-    message.reply("🗑 RG deletado");
   }
 
   // ===== RENOVAR RG =====
   if (cmd === "renovarrg") {
     const rg = rgs[message.author.id];
-    if (!rg) return;
-
+    if (!rg) return message.reply("❌ Você não possui RG");
     if (economia[message.author.id].carteira < 150)
-      return message.reply("❌ Saldo insuficiente");
+      return message.reply("❌ Você precisa de R$150");
 
     economia[message.author.id].carteira -= 150;
-    rg.validade = "31/12/2028";
+    rg.validade = Date.now() + 1000 * 60 * 60 * 24 * 365;
+    rg.status = "Válido";
 
     save("./data/rgs.json", rgs);
     save("./data/economia.json", economia);
 
-    message.reply("✅ RG renovado por R$150");
+    message.reply("✅ RG renovado com sucesso");
   }
 
-  // ===== SALDO =====
+  // ===== CONSULTAR (STAFF) =====
+  if (cmd === "consultar") {
+    if (!isStaff(message.member)) return message.reply("❌ Apenas staff");
+
+    let alvo;
+    if (user) alvo = rgs[user.id];
+    else {
+      const busca = args.join(" ");
+      alvo = Object.values(rgs).find(r => r.cpf === busca || r.rg === busca);
+    }
+
+    if (!alvo) return message.reply("❌ RG não encontrado");
+
+    message.reply(`🪪 **RG:** ${alvo.rg}\n📄 **CPF:** ${alvo.cpf}`);
+  }
+
+  // ===== RG EDITAR / DELETAR =====
+  if (cmd === "rgdeletar") {
+    if (!isStaff(message.member) || !user) return;
+    delete rgs[user.id];
+    save("./data/rgs.json", rgs);
+    message.reply("🗑️ RG deletado");
+  }
+
+  // ===== ECONOMIA =====
   if (cmd === "saldo") {
     message.reply(`💰 Carteira: R$${economia[message.author.id].carteira}`);
   }
 
-  // ===== ADD MONEY =====
-  if (cmd === "addmoney") {
-    if (!isStaff(message.member)) return;
+  if (cmd === "addmoney" || cmd === "removermoney") {
+    if (!isStaff(message.member) || !user) return;
 
-    const valor = Number(args[1]);
-    if (!mention || !valor) return;
+    const valor = Number(args[1]?.replace("$", ""));
+    if (!valor) return;
 
-    economia[mention.id] ??= { carteira: 0 };
-    economia[mention.id].carteira += valor;
-
-    save("./data/economia.json", economia);
-
-    logEconomia(message.guild, "💰 Dinheiro Adicionado",
-      `Staff: ${message.author.tag}\nUsuário: ${mention.tag}\nValor: R$${valor}`);
-
-    message.reply("✅ Dinheiro adicionado");
-  }
-
-  // ===== REMOVER MONEY =====
-  if (cmd === "removermoney") {
-    if (!isStaff(message.member)) return;
-
-    const valor = Number(args[1]);
-    if (!mention || !valor) return;
-
-    economia[mention.id].carteira -= valor;
-    if (economia[mention.id].carteira < 0) economia[mention.id].carteira = 0;
+    economia[user.id] ??= { carteira: 0 };
+    economia[user.id].carteira += cmd === "addmoney" ? valor : -valor;
 
     save("./data/economia.json", economia);
 
-    logEconomia(message.guild, "💸 Dinheiro Removido",
-      `Staff: ${message.author.tag}\nUsuário: ${mention.tag}\nValor: R$${valor}`);
+    logEconomia(
+      message.guild,
+      cmd === "addmoney" ? "💰 Dinheiro Adicionado" : "💸 Dinheiro Removido",
+      `👤 Staff: ${message.author.tag}\n👥 Usuário: ${user.tag}\n💵 Valor: R$${valor}`
+    );
 
-    message.reply("✅ Dinheiro removido");
+    message.reply("✅ Operação realizada");
   }
 
-  // ===== TRANSFERIR =====
   if (cmd === "transferir") {
+    if (!user) return;
     const valor = Number(args[1]);
-    if (!mention || !valor) return;
-
-    if (economia[message.author.id].carteira < valor)
-      return message.reply("❌ Saldo insuficiente");
+    if (economia[message.author.id].carteira < valor) return;
 
     economia[message.author.id].carteira -= valor;
-    economia[mention.id] ??= { carteira: 0 };
-    economia[mention.id].carteira += valor;
+    economia[user.id] ??= { carteira: 0 };
+    economia[user.id].carteira += valor;
 
     save("./data/economia.json", economia);
 
-    logEconomia(message.guild, "🔁 Transferência",
-      `${message.author.tag} → ${mention.tag}\nValor: R$${valor}`);
+    logEconomia(
+      message.guild,
+      "🔁 Transferência",
+      `👤 ${message.author.tag} ➜ ${user.tag}\n💵 R$${valor}`
+    );
 
     message.reply("✅ Transferência realizada");
   }
 
-  // ===== TOP 10 =====
   if (cmd === "top10") {
     const ranking = Object.entries(economia)
       .sort((a, b) => b[1].carteira - a[1].carteira)
       .slice(0, 10)
-      .map(([id, d], i) => `${i + 1}. <@${id}> — R$${d.carteira}`)
+      .map(([id, d], i) => `**${i + 1}.** <@${id}> — R$${d.carteira}`)
       .join("\n");
 
     message.channel.send({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle("🏆 Top 10 Mais Ricos")
-          .setColor("Green")
-          .setDescription(ranking || "Sem dados"),
-      ],
+      embeds: [new EmbedBuilder().setTitle("🏆 Top 10 Ricos").setDescription(ranking)]
     });
   }
 });
