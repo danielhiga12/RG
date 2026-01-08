@@ -1,177 +1,230 @@
-// ===== RG =====
-if (cmd === "setrg") {
-  const [nome, estado, nascimento, genero] = args;
+const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
+const fs = require("fs");
 
-  if (!nome || !estado || !nascimento || !genero)
-    return message.reply("❌ Use: !setrg Nome EstadoCivil DD/MM/AAAA Gênero");
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
+});
 
-  const ano = nascimento.split("/")[2];
-  if (!ano) return message.reply("❌ Data inválida");
+const PREFIX = "!";
 
-  const idade = new Date().getFullYear() - Number(ano);
+// ===== CARGOS STAFF =====
+const STAFF = [
+  "Fundador",
+  "Gerente de Comunidade",
+  "Administrador",
+  "Moderador",
+];
 
-  rgs[message.author.id] = {
-    nome,
-    estado,
-    idade,
-    genero,
-    cpf: gerarCPF(),
-    status: "Válido",
-  };
-
-  economia[message.author.id] ??= { carteira: 0, banco: 0 };
-  economia[message.author.id].carteira += 1000;
-
-  save("./data/rgs.json", rgs);
-  save("./data/economia.json", economia);
-
-  message.reply("🪪 RG criado com sucesso e 💰 R$1000 adicionados à carteira!");
+// ===== FUNÇÕES =====
+function load(file) {
+  if (!fs.existsSync(file)) fs.writeFileSync(file, "{}");
+  return JSON.parse(fs.readFileSync(file));
 }
 
-if (cmd === "rg") {
-  const rg = rgs[message.author.id];
-  if (!rg) return message.reply("❌ Você não possui RG");
+function save(file, data) {
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+}
+
+function isStaff(member) {
+  return member.roles.cache.some(r => STAFF.includes(r.name));
+}
+
+function gerarCPF() {
+  const n = () => Math.floor(Math.random() * 10);
+  return `${n()}${n()}${n()}.${n()}${n()}${n()}.${n()}${n()}${n()}-${n()}${n()}`;
+}
+
+function logEconomia(guild, titulo, descricao) {
+  const canal = guild.channels.cache.find(c => c.name === "logs-economia");
+  if (!canal) return;
 
   const embed = new EmbedBuilder()
-    .setTitle("🪪 Seu RG")
-    .setColor("Green")
-    .setDescription(
-      `👤 Nome: ${rg.nome}
-💍 Estado Civil: ${rg.estado}
-🎂 Idade: ${rg.idade}
-📄 CPF: ${rg.cpf}
-⚧ Gênero: ${rg.genero}
-✅ Status: ${rg.status}`
+    .setTitle(titulo)
+    .setDescription(descricao)
+    .setColor("Gold")
+    .setTimestamp();
+
+  canal.send({ embeds: [embed] });
+}
+
+// ===== DADOS =====
+let economia = load("./data/economia.json");
+let rgs = load("./data/rgs.json");
+
+// ===== READY =====
+client.once("ready", () => {
+  console.log(`✅ Bot online como ${client.user.tag}`);
+});
+
+// ===== COMANDOS =====
+client.on("messageCreate", async (message) => {
+  if (!message.content.startsWith(PREFIX) || message.author.bot) return;
+
+  const args = message.content.slice(1).trim().split(/ +/g);
+  const cmd = args.shift().toLowerCase();
+  const user = message.mentions.users.first();
+
+  economia[message.author.id] ??= { carteira: 0, banco: 0 };
+
+  // ===== SET RG =====
+  if (cmd === "setrg") {
+    const texto = args.join(" ").split(";");
+
+    if (texto.length < 4)
+      return message.reply("❌ Use: !setrg Nome;Estado Civil;DD/MM/AAAA;Gênero");
+
+    const ano = texto[2].split("/")[2];
+    const idade = new Date().getFullYear() - ano;
+
+    rgs[message.author.id] = {
+      nome: texto[0],
+      estadoCivil: texto[1],
+      nascimento: texto[2],
+      idade,
+      genero: texto[3],
+      cpf: gerarCPF(),
+      status: "Válido",
+    };
+
+    economia[message.author.id].carteira += 1000;
+
+    save("./data/rgs.json", rgs);
+    save("./data/economia.json", economia);
+
+    message.reply("🪪 **RG criado com sucesso!**\n💰 R$1000 adicionados à carteira");
+  }
+
+  // ===== VER PRÓPRIO RG =====
+  if (cmd === "rg") {
+    const rg = rgs[message.author.id];
+    if (!rg) return message.reply("❌ Você não possui RG");
+
+    const embed = new EmbedBuilder()
+      .setTitle("🪪 Registro Geral")
+      .setColor("Blue")
+      .setDescription(
+        `👤 **Nome:** ${rg.nome}
+💍 **Estado Civil:** ${rg.estadoCivil}
+🎂 **Idade:** ${rg.idade}
+⚧ **Gênero:** ${rg.genero}
+📄 **CPF:** ${rg.cpf}
+✅ **Status:** ${rg.status}`
+      );
+
+    message.channel.send({ embeds: [embed] });
+  }
+
+  // ===== CONSULTAR (STAFF) =====
+  if (cmd === "consultar") {
+    if (!isStaff(message.member))
+      return message.reply("❌ Apenas staff pode usar este comando");
+
+    if (!user) return message.reply("❌ Marque um usuário");
+
+    const rg = rgs[user.id];
+    if (!rg) return message.reply("❌ RG não encontrado");
+
+    const embed = new EmbedBuilder()
+      .setTitle("🕵️ Consulta de RG")
+      .setColor("Red")
+      .setDescription(
+        `👤 **Nome:** ${rg.nome}
+🎂 **Idade:** ${rg.idade}
+📄 **CPF:** ${rg.cpf}
+⚧ **Gênero:** ${rg.genero}
+✅ **Status:** ${rg.status}`
+      );
+
+    message.channel.send({ embeds: [embed] });
+  }
+
+  // ===== SALDO =====
+  if (cmd === "saldo") {
+    message.reply(
+      `💰 **Carteira:** R$${economia[message.author.id].carteira}`
+    );
+  }
+
+  // ===== ADD MONEY =====
+  if (cmd === "addmoney") {
+    if (!isStaff(message.member))
+      return message.reply("❌ Sem permissão");
+
+    if (!user) return message.reply("❌ Marque um usuário");
+
+    const valor = Number(args[1]);
+    if (!valor) return message.reply("❌ Valor inválido");
+
+    economia[user.id] ??= { carteira: 0, banco: 0 };
+    economia[user.id].carteira += valor;
+
+    save("./data/economia.json", economia);
+
+    logEconomia(
+      message.guild,
+      "💰 Dinheiro Adicionado",
+      `👤 **Staff:** ${message.author.tag}
+👥 **Usuário:** ${user.tag}
+💵 **Valor:** R$${valor}`
     );
 
-  message.channel.send({ embeds: [embed] });
-}
+    message.reply("✅ Dinheiro adicionado com sucesso");
+  }
 
-if (cmd === "consultar") {
-  if (
-    !hasCargo(
-      message.member,
-      CARGOS.FUNDADOR,
-      CARGOS.GERENTE,
-      CARGOS.MONITOR,
-      CARGOS.ADMIN,
-      CARGOS.MOD
-    )
-  )
-    return message.reply("❌ Sem permissão");
+  // ===== REMOVER MONEY =====
+  if (cmd === "removermoney") {
+    if (!isStaff(message.member))
+      return message.reply("❌ Sem permissão");
 
-  const alvo = user || message.author;
-  const rg = rgs[alvo.id];
-  if (!rg) return message.reply("❌ RG não encontrado");
+    if (!user) return message.reply("❌ Marque um usuário");
 
-  const embed = new EmbedBuilder()
-    .setTitle("🪪 Consulta de RG")
-    .setColor("Blue")
-    .setDescription(
-      `👤 Nome: ${rg.nome}
-🆔 ID: ${alvo.id}
-🎂 Idade: ${rg.idade}
-📄 CPF: ${rg.cpf}
-⚧ Gênero: ${rg.genero}
-✅ Status: ${rg.status}`
+    const valor = Number(args[1]);
+    if (!valor) return message.reply("❌ Valor inválido");
+
+    economia[user.id].carteira -= valor;
+    save("./data/economia.json", economia);
+
+    logEconomia(
+      message.guild,
+      "💸 Dinheiro Removido",
+      `👤 **Staff:** ${message.author.tag}
+👥 **Usuário:** ${user.tag}
+💵 **Valor:** R$${valor}`
     );
 
-  message.channel.send({ embeds: [embed] });
-}
+    message.reply("✅ Dinheiro removido com sucesso");
+  }
 
-// ===== ECONOMIA =====
-if (cmd === "saldo") {
-  economia[message.author.id] ??= { carteira: 0, banco: 0 };
+  // ===== TRANSFERIR =====
+  if (cmd === "transferir") {
+    if (!user) return message.reply("❌ Marque um usuário");
 
-  message.reply(
-    `💰 Carteira: R$${economia[message.author.id].carteira}\n🏦 Banco: R$${economia[message.author.id].banco}`
-  );
-}
+    const valor = Number(args[1]);
+    if (!valor) return message.reply("❌ Valor inválido");
 
-if (cmd === "addmoney") {
-  if (!hasCargo(message.member, CARGOS.FUNDADOR, CARGOS.GERENTE, CARGOS.MONITOR))
-    return message.reply("❌ Sem permissão");
+    if (economia[message.author.id].carteira < valor)
+      return message.reply("❌ Saldo insuficiente");
 
-  const valor = Number(args[1]);
-  if (!user || isNaN(valor)) return message.reply("❌ Use: !addmoney @usuário valor");
+    economia[message.author.id].carteira -= valor;
+    economia[user.id] ??= { carteira: 0, banco: 0 };
+    economia[user.id].carteira += valor;
 
-  economia[user.id] ??= { carteira: 0, banco: 0 };
-  economia[user.id].carteira += valor;
-  save("./data/economia.json", economia);
+    save("./data/economia.json", economia);
 
-  const embed = new EmbedBuilder()
-    .setTitle("💰 Dinheiro Adicionado")
-    .setColor("Green")
-    .setDescription(
-      `👮 Staff: ${message.author.tag}
-👤 Usuário: ${user.tag}
-💵 Valor: R$${valor}`
-    )
-    .setTimestamp();
+    logEconomia(
+      message.guild,
+      "🔁 Transferência",
+      `👤 **De:** ${message.author.tag}
+👥 **Para:** ${user.tag}
+💵 **Valor:** R$${valor}`
+    );
 
-  const canal = message.guild.channels.cache.find(c => c.name === "logs-economia");
-  if (canal) canal.send({ embeds: [embed] });
+    message.reply("✅ Transferência realizada");
+  }
+});
 
-  message.reply("✅ Dinheiro adicionado");
-}
-
-if (cmd === "removermoney") {
-  if (!hasCargo(message.member, CARGOS.FUNDADOR, CARGOS.GERENTE, CARGOS.MONITOR))
-    return message.reply("❌ Sem permissão");
-
-  const valor = Number(args[1]);
-  if (!user || isNaN(valor))
-    return message.reply("❌ Use: !removermoney @usuário valor");
-
-  economia[user.id] ??= { carteira: 0, banco: 0 };
-  economia[user.id].carteira -= valor;
-  save("./data/economia.json", economia);
-
-  const embed = new EmbedBuilder()
-    .setTitle("💸 Dinheiro Removido")
-    .setColor("Red")
-    .setDescription(
-      `👮 Staff: ${message.author.tag}
-👤 Usuário: ${user.tag}
-💵 Valor: R$${valor}`
-    )
-    .setTimestamp();
-
-  const canal = message.guild.channels.cache.find(c => c.name === "logs-economia");
-  if (canal) canal.send({ embeds: [embed] });
-
-  message.reply("✅ Dinheiro removido");
-}
-
-if (cmd === "transferir") {
-  const alvo = user;
-  const valor = Number(args[1]);
-
-  if (!alvo || isNaN(valor) || valor <= 0)
-    return message.reply("❌ Use: !transferir @usuário valor");
-
-  economia[message.author.id] ??= { carteira: 0, banco: 0 };
-  economia[alvo.id] ??= { carteira: 0, banco: 0 };
-
-  if (economia[message.author.id].carteira < valor)
-    return message.reply("❌ Saldo insuficiente");
-
-  economia[message.author.id].carteira -= valor;
-  economia[alvo.id].carteira += valor;
-  save("./data/economia.json", economia);
-
-  const embed = new EmbedBuilder()
-    .setTitle("💸 Transferência")
-    .setColor("Blue")
-    .setDescription(
-      `👤 Remetente: ${message.author.tag}
-🎯 Destinatário: ${alvo.tag}
-💰 Valor: R$${valor}`
-    )
-    .setTimestamp();
-
-  const canal = message.guild.channels.cache.find(c => c.name === "logs-economia");
-  if (canal) canal.send({ embeds: [embed] });
-
-  message.reply(`💸 Transferência de R$${valor} realizada`);
-}
+client.login(process.env.TOKEN);
