@@ -1,163 +1,221 @@
-const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
-const fs = require("fs");
+// ===============================
+// GARANTIR DADOS INICIAIS
+// ===============================
+economia[message.author.id] ??= { carteira: 0, banco: 0 };
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
-});
+// ===============================
+// SET RG
+// Exemplo: !setrg Daniel Higa Solteiro 23/07/2006 Masculino
+// ===============================
+if (cmd === "setrg") {
+  if (rgs[message.author.id])
+    return message.reply("❌ Você já possui um RG registrado");
 
-const PREFIX = "!";
+  if (args.length < 5)
+    return message.reply(
+      "❌ Use: !setrg Nome Sobrenome EstadoCivil DD/MM/AAAA Gênero"
+    );
 
-// ===== CARGOS =====
-const CARGOS = {
-  FUNDADOR: "Fundador",
-  GERENTE: "Gerente de Comunidade",
-  MONITOR: "Monitor",
-  JUIZ: "Juiz",
-};
+  const nome = `${args[0]} ${args[1]}`;
+  const estado = args[2];
+  const nascimento = args[3];
+  const genero = args[4];
 
-// ===== FUNÇÕES =====
-function load(file) {
-  if (!fs.existsSync(file)) fs.writeFileSync(file, "{}");
-  return JSON.parse(fs.readFileSync(file));
+  const ano = Number(nascimento.split("/")[2]);
+  const idade = new Date().getFullYear() - ano;
+
+  rgs[message.author.id] = {
+    nome,
+    estado,
+    idade,
+    genero,
+    cpf: gerarCPF(),
+    status: "Válido",
+  };
+
+  // bônus inicial
+  economia[message.author.id].carteira += 1000;
+
+  save("./data/rgs.json", rgs);
+  save("./data/economia.json", economia);
+
+  message.reply(
+    "🪪 **RG criado com sucesso!**\n💰 R$1000 foram adicionados à sua carteira"
+  );
 }
 
-function save(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+// ===============================
+// VER PRÓPRIO RG
+// ===============================
+if (cmd === "rg") {
+  const rg = rgs[message.author.id];
+  if (!rg) return message.reply("❌ Você não possui RG");
+
+  const emb = new EmbedBuilder()
+    .setTitle("🪪 Seu RG")
+    .setColor("Blue")
+    .setDescription(
+      `👤 Nome: ${rg.nome}
+🆔 ID: ${message.author.id}
+💍 Estado civil: ${rg.estado}
+🎂 Idade: ${rg.idade}
+📄 CPF: ${rg.cpf}
+⚧ Gênero: ${rg.genero}
+✅ Status: ${rg.status}`
+    );
+
+  message.channel.send({ embeds: [emb] });
 }
 
-function hasCargo(member, ...cargos) {
-  return cargos.some(cargo => member.roles.cache.some(r => r.name === cargo));
+// ===============================
+// CONSULTAR RG (APENAS STAFF)
+// ===============================
+if (cmd === "consultar") {
+  if (
+    !hasCargo(
+      message.member,
+      CARGOS.FUNDADOR,
+      CARGOS.GERENTE,
+      CARGOS.MONITOR,
+      CARGOS.ADMIN,
+      CARGOS.MOD,
+      CARGOS.POLICIA,
+      CARGOS.JUIZ
+    )
+  )
+    return message.reply("❌ Sem permissão");
+
+  const alvo =
+    message.mentions.users.first() ||
+    message.guild.members.cache.get(args[0])?.user;
+
+  if (!alvo || !rgs[alvo.id])
+    return message.reply("❌ RG não encontrado");
+
+  const rg = rgs[alvo.id];
+
+  const emb = new EmbedBuilder()
+    .setTitle("🪪 RG – Consulta")
+    .setColor("DarkBlue")
+    .setDescription(
+      `👤 Nome: ${rg.nome}
+🆔 ID: ${alvo.id}
+💍 Estado civil: ${rg.estado}
+🎂 Idade: ${rg.idade}
+📄 CPF: ${rg.cpf}
+⚧ Gênero: ${rg.genero}
+✅ Status: ${rg.status}`
+    );
+
+  message.channel.send({ embeds: [emb] });
 }
 
-function gerarCPF() {
-  const n = () => Math.floor(Math.random() * 10);
-  return `${n()}${n()}${n()}.${n()}${n()}${n()}.${n()}${n()}${n()}-${n()}${n()}`;
+// ===============================
+// SALDO
+// ===============================
+if (cmd === "saldo") {
+  const e = economia[message.author.id];
+  message.reply(`💰 Carteira: R$${e.carteira}\n🏦 Banco: R$${e.banco}`);
 }
 
-// ===== DADOS =====
-let rgs = load("./data/rgs.json");
-let economia = load("./data/economia.json");
+// ===============================
+// TRANSFERIR
+// ===============================
+if (cmd === "transferir") {
+  const alvo = message.mentions.users.first();
+  const valor = Number(args[1]);
 
-// ===== READY =====
-client.once("ready", () => {
-  console.log(`✅ Bot online: ${client.user.tag}`);
-});
+  if (!alvo || isNaN(valor) || valor <= 0)
+    return message.reply("❌ Use: !transferir @usuário valor");
 
-// ===== MESSAGE =====
-client.on("messageCreate", async message => {
-  if (!message.content.startsWith(PREFIX) || message.author.bot) return;
+  economia[alvo.id] ??= { carteira: 0, banco: 0 };
 
-  const args = message.content.slice(PREFIX.length).trim().split(/ +/);
-  const cmd = args.shift().toLowerCase();
-  const user = message.mentions.users.first() || message.guild.members.cache.get(args[0])?.user;
+  if (economia[message.author.id].carteira < valor)
+    return message.reply("❌ Saldo insuficiente");
 
-  economia[message.author.id] ??= { carteira: 0, banco: 0 };
+  economia[message.author.id].carteira -= valor;
+  economia[alvo.id].carteira += valor;
 
-  // ===== RG =====
-  if (cmd === "setrg") {
-    const t = args.join(" ").split(";");
-    if (t.length < 4) return message.reply("Use: !setrg Nome;Estado Civil;DD/MM/AAAA;Gênero");
+  save("./data/economia.json", economia);
 
-    const idade = new Date().getFullYear() - t[2].split("/")[2];
+  message.reply(`💸 Você transferiu R$${valor} para ${alvo.tag}`);
+}
 
-    rgs[message.author.id] = {
-      nome: t[0],
-      estado: t[1],
-      idade,
-      genero: t[3],
-      cpf: gerarCPF(),
-      status: "Válido",
-      validade: "23/07/2026",
-      cnh: "Sem CNH"
-    };
+// ===============================
+// TOP 10 MAIS RICOS
+// ===============================
+if (cmd === "top10") {
+  const ranking = Object.entries(economia)
+    .sort(([, a], [, b]) => b.carteira - a.carteira)
+    .slice(0, 10)
+    .map(
+      ([id, e], i) =>
+        `${i + 1}. <@${id}> — 💰 R$${e.carteira}`
+    );
 
-    economia[message.author.id].carteira += 1000; // Depósito inicial
-    save("./data/rgs.json", rgs);
-    save("./data/economia.json", economia);
+  message.reply(
+    ranking.length
+      ? `🏆 **Top 10 mais ricos:**\n${ranking.join("\n")}`
+      : "❌ Nenhum dado encontrado"
+  );
+}
 
-    message.reply("🪪 RG criado e R$1000 depositados na carteira!");
-  }
+// ===============================
+// ADD MONEY (STAFF)
+// ===============================
+if (cmd === "addmoney") {
+  if (
+    !hasCargo(
+      message.member,
+      CARGOS.FUNDADOR,
+      CARGOS.GERENTE,
+      CARGOS.MONITOR
+    )
+  )
+    return message.reply("❌ Sem permissão");
 
-  if (cmd === "rg") {
-    const rg = rgs[message.author.id];
-    if (!rg) return message.reply("❌ Você não possui RG registrado.");
+  const alvo = message.mentions.users.first();
+  const valor = Number(args[1]);
 
-    const emb = new EmbedBuilder()
-      .setTitle("🪪 Seu Registro Geral")
-      .setColor("Green")
-      .setDescription(
-        `👤 Nome: ${rg.nome}\n🆔 RG: ${message.author.id}\n💍 Estado Civil: ${rg.estado}\n🎂 Idade: ${rg.idade}\n📄 CPF: ${rg.cpf}\n⚧ Gênero: ${rg.genero}\n🚔 CNH: ${rg.cnh}\n✅ Status: ${rg.status}\n📆 Validade: ${rg.validade}`
-      );
-    message.channel.send({ embeds: [emb] });
-  }
+  if (!alvo || isNaN(valor) || valor <= 0)
+    return message.reply("❌ Use: !addmoney @usuário valor");
 
-  // ===== CNH =====
-  if (cmd === "tirarcnh") {
-    const categoria = args[0]?.toUpperCase();
-    if (!["B","C"].includes(categoria)) return message.reply("❌ Informe a categoria B ou C");
+  economia[alvo.id] ??= { carteira: 0, banco: 0 };
+  economia[alvo.id].carteira += valor;
 
-    const custo = categoria === "B" ? 5000 : 7000;
-    if (economia[message.author.id].carteira < custo) return message.reply("❌ Saldo insuficiente para CNH");
+  save("./data/economia.json", economia);
 
-    economia[message.author.id].carteira -= custo;
+  message.reply(`💰 R$${valor} adicionados para ${alvo.tag}`);
+}
 
-    // Perguntas (mínimo 4 acertos de 6)
-    const perguntas = [
-      { q: "Qual a velocidade máxima em cidade?", r: "50" },
-      { q: "Sinal vermelho significa parar?", r: "sim" },
-      { q: "Cinto de segurança é obrigatório?", r: "sim" },
-      { q: "Pode ultrapassar na faixa contínua?", r: "não" },
-      { q: "Qual o limite de álcool no sangue?", r: "0" },
-      { q: "Farol baixo à noite é obrigatório?", r: "sim" }
-    ];
+// ===============================
+// REMOVER MONEY (STAFF)
+// ===============================
+if (cmd === "removermoney") {
+  if (
+    !hasCargo(
+      message.member,
+      CARGOS.FUNDADOR,
+      CARGOS.GERENTE,
+      CARGOS.MONITOR
+    )
+  )
+    return message.reply("❌ Sem permissão");
 
-    let acertos = 0;
-    // Para simplificação, consideramos todas certas (você pode adicionar coleta de respostas real)
-    acertos = perguntas.length;
+  const alvo = message.mentions.users.first();
+  const valor = Number(args[1]);
 
-    if (acertos >= 4) {
-      rgs[message.author.id].cnh = `Regular (${categoria})`;
-      save("./data/rgs.json", rgs);
-      save("./data/economia.json", economia);
-      message.reply(`🚗 CNH categoria ${categoria} aprovada!`);
-    } else {
-      message.reply("❌ Você reprovou na prova! Tente novamente e pague novamente.");
-    }
-  }
+  if (!alvo || isNaN(valor) || valor <= 0)
+    return message.reply("❌ Use: !removermoney @usuário valor");
 
-  if (cmd === "renovarcnh") {
-    const rg = rgs[message.author.id];
-    if (!rg) return message.reply("❌ Você não possui RG registrado.");
-    if (!rg.cnh.includes("Regular")) return message.reply("❌ Você não possui CNH válida para renovar.");
+  economia[alvo.id] ??= { carteira: 0, banco: 0 };
 
-    const custo = 2000;
-    if (economia[message.author.id].carteira < custo) return message.reply("❌ Saldo insuficiente para renovar CNH");
+  if (economia[alvo.id].carteira < valor)
+    return message.reply("❌ Saldo insuficiente do usuário");
 
-    economia[message.author.id].carteira -= custo;
-    rg.cnh = rg.cnh; // mantém categoria, apenas renova
-    save("./data/rgs.json", rgs);
-    save("./data/economia.json", economia);
+  economia[alvo.id].carteira -= valor;
 
-    message.reply(`✅ CNH renovada pagando R$${custo}`);
-  }
+  save("./data/economia.json", economia);
 
-  if (cmd === "setcnh") {
-    if (!hasCargo(message.member, CARGOS.FUNDADOR, CARGOS.GERENTE, CARGOS.MONITOR, CARGOS.JUIZ))
-      return message.reply("❌ Apenas staff pode usar!");
-
-    if (!user) return message.reply("❌ Usuário não encontrado");
-    const categoria = args[1]?.toUpperCase();
-    if (!["B","C"].includes(categoria)) return message.reply("❌ Informe a categoria B ou C");
-
-    rgs[user.id].cnh = `Regular (${categoria})`;
-    save("./data/rgs.json", rgs);
-    message.reply(`✅ CNH de ${user.tag} definida para categoria ${categoria}`);
-  }
-
-});
-
-client.login(process.env.TOKEN);
+  message.reply(`💸 R$${valor} removidos de ${alvo.tag}`);
+}
