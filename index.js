@@ -1,80 +1,72 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
 const fs = require("fs");
+const path = require("path");
 
+// ===== CLIENT =====
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.MessageContent
   ],
 });
 
+// ===== CONFIG =====
 const PREFIX = "!";
+const DATA_DIR = "./data";
+const RG_FILE = path.join(DATA_DIR, "rgs.json");
 
-// ===== CARGOS STAFF =====
-const STAFF = [
+// ===== CARGOS =====
+const CARGOS_CONSULTA = [
   "Fundador",
   "Gerente de Comunidade",
   "Monitor",
+  "Administrador",
+  "Moderador",
+  "Policial"
 ];
 
+const CARGOS_ADMIN_RG = [
+  "Fundador",
+  "Gerente de Comunidade",
+  "Monitor",
+  "Administrador",
+  "Moderador"
+];
+
+// ===== SETUP =====
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+if (!fs.existsSync(RG_FILE)) fs.writeFileSync(RG_FILE, "{}");
+
 // ===== FUNÇÕES =====
-function load(file) {
-  if (!fs.existsSync(file)) fs.writeFileSync(file, "{}");
-  return JSON.parse(fs.readFileSync(file));
-}
+const loadRG = () => JSON.parse(fs.readFileSync(RG_FILE));
+const saveRG = (data) => fs.writeFileSync(RG_FILE, JSON.stringify(data, null, 2));
 
-function save(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
-}
+const temCargo = (member, cargos) =>
+  member.roles.cache.some(r => cargos.includes(r.name));
 
-function isStaff(member) {
-  return member.roles.cache.some(r => STAFF.includes(r.name));
-}
+const gerarNumero = (n) =>
+  Array.from({ length: n }, () => Math.floor(Math.random() * 10)).join("");
 
-function gerarNumero(tamanho) {
-  let n = "";
-  for (let i = 0; i < tamanho; i++) n += Math.floor(Math.random() * 10);
-  return n;
-}
+const gerarCPF = () =>
+  `${gerarNumero(1)}.${gerarNumero(3)}.${gerarNumero(3)}.${gerarNumero(3)}.${gerarNumero(2)}`;
 
-function gerarCPF() {
-  return `${gerarNumero(1)}.${gerarNumero(3)}.${gerarNumero(3)}.${gerarNumero(3)}.${gerarNumero(3)}.${gerarNumero(2)}`;
-}
-
-function logEconomia(guild, titulo, descricao) {
-  const canal = guild.channels.cache.find(c => c.name === "logs-economia");
-  if (!canal) return;
-
-  const embed = new EmbedBuilder()
-    .setTitle(titulo)
-    .setDescription(descricao)
-    .setColor("Gold")
-    .setTimestamp();
-
-  canal.send({ embeds: [embed] });
-}
-
-// ===== DADOS =====
-let economia = load("./data/economia.json");
-let rgs = load("./data/rgs.json");
+const dataBR = (ts) => new Date(ts).toLocaleDateString("pt-BR");
 
 // ===== READY =====
 client.once("ready", () => {
-  console.log(`✅ Bot online como ${client.user.tag}`);
+  console.log(`✅ Bot RG online como ${client.user.tag}`);
 });
 
 // ===== COMANDOS =====
 client.on("messageCreate", async (message) => {
   if (!message.content.startsWith(PREFIX) || message.author.bot) return;
 
-  const args = message.content.slice(1).trim().split(/ +/g);
+  const args = message.content.slice(PREFIX.length).trim().split(/ +/);
   const cmd = args.shift().toLowerCase();
-  const user = message.mentions.users.first();
+  const rgs = loadRG();
 
-  economia[message.author.id] ??= { carteira: 0 };
-
-  // ===== SET RG =====
+  // ===== SETRG =====
   if (cmd === "setrg") {
     if (args.length < 5)
       return message.reply("❌ Use: !setrg Nome Sobrenome EstadoCivil DD/MM/AAAA Gênero");
@@ -95,136 +87,118 @@ client.on("messageCreate", async (message) => {
       genero,
       rg: gerarNumero(19),
       cpf: gerarCPF(),
-      validade: Date.now() + 1000 * 60 * 60 * 24 * 365,
-      status: "Válido",
+      emissao: Date.now(),
+      vencimento: Date.now() + 30 * 24 * 60 * 60 * 1000
     };
 
-    economia[message.author.id].carteira += 1000;
-
-    save("./data/rgs.json", rgs);
-    save("./data/economia.json", economia);
-
-    message.reply("🪪 RG criado com sucesso | 💰 R$1000 adicionados");
+    saveRG(rgs);
+    message.reply("🪪 RG criado com sucesso!");
   }
 
-  // ===== VER RG =====
+  // ===== VER PRÓPRIO RG =====
   if (cmd === "rg") {
     const rg = rgs[message.author.id];
-    if (!rg) return message.reply("❌ Você não possui RG");
+    if (!rg) return message.reply("❌ Você não possui RG.");
+
+    const vencido = Date.now() > rg.vencimento;
 
     const embed = new EmbedBuilder()
       .setTitle("🪪 Registro Geral")
-      .setColor("Blue")
+      .setColor(vencido ? "Red" : "Blue")
       .setDescription(
-`👤 **Nome:** ${rg.nome}
+        `👤 **Nome:** ${rg.nome}
 🆔 **RG:** ${rg.rg}
 🎂 **Idade:** ${rg.idade}
 📄 **CPF:** ${rg.cpf}
 ⚧ **Gênero:** ${rg.genero}
-📅 **Validade:** ${new Date(rg.validade).toLocaleDateString()}
-✅ **Status:** ${rg.status}`
+📅 **Emissão:** ${dataBR(rg.emissao)}
+⏰ **Validade:** ${dataBR(rg.vencimento)}
+📌 **Status:** ${vencido ? "❌ VENCIDO" : "✅ VÁLIDO"}`
       );
 
     message.channel.send({ embeds: [embed] });
   }
 
+  // ===== CONSULTAR =====
+  if (cmd === "consultar") {
+    if (!temCargo(message.member, CARGOS_CONSULTA))
+      return message.reply("❌ Sem permissão.");
+
+    let rg;
+
+    if (message.mentions.users.first()) {
+      rg = rgs[message.mentions.users.first().id];
+    } else {
+      const termo = args[0];
+      rg = Object.values(rgs).find(r => r.rg === termo || r.cpf === termo);
+    }
+
+    if (!rg) return message.reply("❌ RG não encontrado.");
+
+    const embed = new EmbedBuilder()
+      .setTitle("🔎 Consulta de RG")
+      .setColor("Orange")
+      .setDescription(
+        `👤 **Nome:** ${rg.nome}
+🆔 **RG:** ${rg.rg}
+📄 **CPF:** ${rg.cpf}
+🎂 **Idade:** ${rg.idade}
+⏰ **Validade:** ${dataBR(rg.vencimento)}`
+      );
+
+    message.channel.send({ embeds: [embed] });
+  }
+
+  // ===== EDITAR RG =====
+  if (cmd === "editarrg") {
+    if (!temCargo(message.member, CARGOS_ADMIN_RG))
+      return message.reply("❌ Sem permissão.");
+
+    const user = message.mentions.users.first();
+    if (!user || !rgs[user.id])
+      return message.reply("❌ Usuário sem RG.");
+
+    const campo = args[1];
+    const novoValor = args.slice(2).join(" ");
+    if (!campo || !novoValor)
+      return message.reply("❌ Use: !editarrg @user campo valor");
+
+    rgs[user.id][campo] = novoValor;
+    saveRG(rgs);
+
+    message.reply("✅ RG editado com sucesso!");
+  }
+
+  // ===== DELETAR RG =====
+  if (cmd === "deletarrg") {
+    if (!temCargo(message.member, CARGOS_ADMIN_RG))
+      return message.reply("❌ Sem permissão.");
+
+    const user = message.mentions.users.first();
+    if (!user || !rgs[user.id])
+      return message.reply("❌ Usuário sem RG.");
+
+    delete rgs[user.id];
+    saveRG(rgs);
+
+    message.reply("🗑 RG deletado com sucesso!");
+  }
+
   // ===== RENOVAR RG =====
   if (cmd === "renovarrg") {
     const rg = rgs[message.author.id];
-    if (!rg) return message.reply("❌ Você não possui RG");
-    if (economia[message.author.id].carteira < 150)
-      return message.reply("❌ Você precisa de R$150");
+    if (!rg) return message.reply("❌ Você não possui RG.");
 
-    economia[message.author.id].carteira -= 150;
-    rg.validade = Date.now() + 1000 * 60 * 60 * 24 * 365;
-    rg.status = "Válido";
+    if (Date.now() < rg.vencimento)
+      return message.reply("❌ Seu RG ainda está válido.");
 
-    save("./data/rgs.json", rgs);
-    save("./data/economia.json", economia);
+    rg.emissao = Date.now();
+    rg.vencimento = Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-    message.reply("✅ RG renovado com sucesso");
-  }
-
-  // ===== CONSULTAR (STAFF) =====
-  if (cmd === "consultar") {
-    if (!isStaff(message.member)) return message.reply("❌ Apenas staff");
-
-    let alvo;
-    if (user) alvo = rgs[user.id];
-    else {
-      const busca = args.join(" ");
-      alvo = Object.values(rgs).find(r => r.cpf === busca || r.rg === busca);
-    }
-
-    if (!alvo) return message.reply("❌ RG não encontrado");
-
-    message.reply(`🪪 **RG:** ${alvo.rg}\n📄 **CPF:** ${alvo.cpf}`);
-  }
-
-  // ===== RG EDITAR / DELETAR =====
-  if (cmd === "rgdeletar") {
-    if (!isStaff(message.member) || !user) return;
-    delete rgs[user.id];
-    save("./data/rgs.json", rgs);
-    message.reply("🗑️ RG deletado");
-  }
-
-  // ===== ECONOMIA =====
-  if (cmd === "saldo") {
-    message.reply(`💰 Carteira: R$${economia[message.author.id].carteira}`);
-  }
-
-  if (cmd === "addmoney" || cmd === "removermoney") {
-    if (!isStaff(message.member) || !user) return;
-
-    const valor = Number(args[1]?.replace("$", ""));
-    if (!valor) return;
-
-    economia[user.id] ??= { carteira: 0 };
-    economia[user.id].carteira += cmd === "addmoney" ? valor : -valor;
-
-    save("./data/economia.json", economia);
-
-    logEconomia(
-      message.guild,
-      cmd === "addmoney" ? "💰 Dinheiro Adicionado" : "💸 Dinheiro Removido",
-      `👤 Staff: ${message.author.tag}\n👥 Usuário: ${user.tag}\n💵 Valor: R$${valor}`
-    );
-
-    message.reply("✅ Operação realizada");
-  }
-
-  if (cmd === "transferir") {
-    if (!user) return;
-    const valor = Number(args[1]);
-    if (economia[message.author.id].carteira < valor) return;
-
-    economia[message.author.id].carteira -= valor;
-    economia[user.id] ??= { carteira: 0 };
-    economia[user.id].carteira += valor;
-
-    save("./data/economia.json", economia);
-
-    logEconomia(
-      message.guild,
-      "🔁 Transferência",
-      `👤 ${message.author.tag} ➜ ${user.tag}\n💵 R$${valor}`
-    );
-
-    message.reply("✅ Transferência realizada");
-  }
-
-  if (cmd === "top10") {
-    const ranking = Object.entries(economia)
-      .sort((a, b) => b[1].carteira - a[1].carteira)
-      .slice(0, 10)
-      .map(([id, d], i) => `**${i + 1}.** <@${id}> — R$${d.carteira}`)
-      .join("\n");
-
-    message.channel.send({
-      embeds: [new EmbedBuilder().setTitle("🏆 Top 10 Ricos").setDescription(ranking)]
-    });
+    saveRG(rgs);
+    message.reply("✅ RG renovado com sucesso!");
   }
 });
 
+// ===== LOGIN =====
 client.login(process.env.TOKEN);
